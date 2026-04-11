@@ -80,48 +80,54 @@ async def list_documents_api():
     ]
 
 
+async def _generate_parse_stream(document_id: str):
+    try:
+        for chunk in parse_document_stream(document_id):
+            if chunk.type.value == "text":
+                if chunk.metadata:
+                    progress_chunk = ParseProgressChunk(
+                        type="progress",
+                        stage=chunk.metadata.get("stage"),
+                        progress=_get_progress(chunk.metadata.get("stage")),
+                    )
+                    yield f"data: {json.dumps(progress_chunk.model_dump())}\n\n"
+                
+                if chunk.content:
+                    yield f"data: {json.dumps({'type': 'text', 'content': chunk.content})}\n\n"
+            
+            elif chunk.type.value == "done":
+                metadata = chunk.metadata or {}
+                blocks_data = metadata.get("blocks", [])
+                blocks = [ContentBlock(**b) for b in blocks_data] if blocks_data else []
+                
+                done_chunk = ParseProgressChunk(
+                    type="done",
+                    total_pages=metadata.get("total_pages"),
+                    blocks=blocks,
+                    raw_markdown=metadata.get("raw_markdown"),
+                )
+                yield f"data: {json.dumps(done_chunk.model_dump())}\n\n"
+            
+            elif chunk.type.value == "error":
+                error_chunk = ParseProgressChunk(
+                    type="error",
+                    error=chunk.error_message,
+                )
+                yield f"data: {json.dumps(error_chunk.model_dump())}\n\n"
+                
+    except Exception as e:
+        error_chunk = ParseProgressChunk(type="error", error=str(e))
+        yield f"data: {json.dumps(error_chunk.model_dump())}\n\n"
+
+
+@router.get("/{document_id}/parse")
+async def parse_document_get(document_id: str):
+    return StreamingResponse(_generate_parse_stream(document_id), media_type="text/event-stream")
+
+
 @router.post("/{document_id}/parse")
-async def parse_document_api(document_id: str):
-    async def generate():
-        try:
-            for chunk in parse_document_stream(document_id):
-                if chunk.type.value == "text":
-                    if chunk.metadata:
-                        progress_chunk = ParseProgressChunk(
-                            type="progress",
-                            stage=chunk.metadata.get("stage"),
-                            progress=_get_progress(chunk.metadata.get("stage")),
-                        )
-                        yield f"data: {json.dumps(progress_chunk.model_dump())}\n\n"
-                    
-                    if chunk.content:
-                        yield f"data: {json.dumps({'type': 'text', 'content': chunk.content})}\n\n"
-                
-                elif chunk.type.value == "done":
-                    metadata = chunk.metadata or {}
-                    blocks_data = metadata.get("blocks", [])
-                    blocks = [ContentBlock(**b) for b in blocks_data] if blocks_data else []
-                    
-                    done_chunk = ParseProgressChunk(
-                        type="done",
-                        total_pages=metadata.get("total_pages"),
-                        blocks=blocks,
-                        raw_markdown=metadata.get("raw_markdown"),
-                    )
-                    yield f"data: {json.dumps(done_chunk.model_dump())}\n\n"
-                
-                elif chunk.type.value == "error":
-                    error_chunk = ParseProgressChunk(
-                        type="error",
-                        error=chunk.error_message,
-                    )
-                    yield f"data: {json.dumps(error_chunk.model_dump())}\n\n"
-                    
-        except Exception as e:
-            error_chunk = ParseProgressChunk(type="error", error=str(e))
-            yield f"data: {json.dumps(error_chunk.model_dump())}\n\n"
-    
-    return StreamingResponse(generate(), media_type="text/event-stream")
+async def parse_document_post(document_id: str):
+    return StreamingResponse(_generate_parse_stream(document_id), media_type="text/event-stream")
 
 
 def _get_progress(stage: str) -> int:

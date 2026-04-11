@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Document, Session, QAMessage, QuickQuestion, ContentBlock } from '@/types'
+import type { Document, Session, QAMessage, QuickQuestion, ContentBlock, Footprint, KnowledgeCard } from '@/types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -152,4 +152,59 @@ export async function getQuickQuestions(): Promise<QuickQuestion[]> {
 export async function healthCheck(): Promise<{ status: string }> {
   const response = await api.get('/health')
   return response.data
+}
+
+export async function getFootprints(sessionId: string): Promise<Footprint[]> {
+  const response = await api.get(`/footprints/${sessionId}`)
+  return response.data.footprints
+}
+
+export async function createFootprint(
+  sessionId: string,
+  actionType: string,
+  context?: Record<string, any>,
+  messageId?: string
+): Promise<Footprint> {
+  const response = await api.post('/footprints/', {
+    session_id: sessionId,
+    action_type: actionType,
+    context,
+    message_id: messageId,
+  })
+  return response.data
+}
+
+export async function getCards(sessionId?: string): Promise<KnowledgeCard[]> {
+  const url = sessionId ? `/cards/?session_id=${sessionId}` : '/cards/'
+  const response = await api.get(url)
+  return response.data.cards
+}
+
+export async function getCard(id: string): Promise<KnowledgeCard> {
+  const response = await api.get(`/cards/${id}`)
+  return response.data
+}
+
+export async function createCard(
+  sessionId: string,
+  sourceText: string,
+  annotation?: string,
+  blockId?: string
+): Promise<KnowledgeCard> {
+  const response = await api.post('/cards/', {
+    session_id: sessionId,
+    source_text: sourceText,
+    annotation,
+    block_id: blockId,
+  })
+  return response.data
+}
+
+export async function updateCard(id: string, annotation: string): Promise<KnowledgeCard> {
+  const response = await api.put(`/cards/${id}`, { annotation })
+  return response.data
+}
+
+export async function deleteCard(id: string): Promise<void> {
+  await api.delete(`/cards/${id}`)
 }

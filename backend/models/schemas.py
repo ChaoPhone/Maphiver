@@ -184,3 +184,49 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     timestamp: datetime = Field(default_factory=datetime.now)
+
+
+class FootprintResponse(BaseModel):
+    id: str
+    session_id: str
+    message_id: Optional[str] = None
+    action_type: str
+    context: Optional[dict] = None
+    created_at: datetime
+
+
+class FootprintListResponse(BaseModel):
+    footprints: List[FootprintResponse]
+    total: int
+
+
+class FootprintCreateRequest(BaseModel):
+    session_id: str
+    action_type: str
+    context: Optional[dict] = None
+    message_id: Optional[str] = None
+
+
+class CardResponse(BaseModel):
+    id: str
+    session_id: str
+    source_text: str
+    annotation: Optional[str] = None
+    block_id: Optional[str] = None
+    created_at: datetime
+
+
+class CardListResponse(BaseModel):
+    cards: List[CardResponse]
+    total: int
+
+
+class CardCreateRequest(BaseModel):
+    session_id: str
+    source_text: str
+    annotation: Optional[str] = None
+    block_id: Optional[str] = None
+
+
+class CardUpdateRequest(BaseModel):
+    annotation: str

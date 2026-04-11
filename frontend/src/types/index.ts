@@ -54,3 +54,21 @@ export interface AnswerChunk {
   content?: string
   error?: string
 }
+
+export interface Footprint {
+  id: string
+  session_id: string
+  message_id?: string
+  action_type: string
+  context?: Record<string, any>
+  created_at: string
+}
+
+export interface KnowledgeCard {
+  id: string
+  session_id: string
+  source_text: string
+  annotation?: string
+  block_id?: string
+  created_at: string
+}
