@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Logs
+*.log
+logs/
+
+# Environments
+.env
+.venv
+venv/
+ENV/
+
+# Streamlit
+.streamlit/
+! .streamlit/config.toml
+
+# Project Data (Database and Uploads)
+maphiver/data/maphiver.db
+maphiver/data/uploads/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
