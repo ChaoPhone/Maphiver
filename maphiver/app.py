@@ -6,6 +6,7 @@ from repositories.database import init_db_sync
 from services import (
     upload_document,
     parse_document,
+    parse_document_stream,
     get_document,
     create_session,
     get_session,
@@ -18,7 +19,7 @@ from services import (
     record_footprint,
     get_footprints,
 )
-from models.schemas import ChunkType
+from models.schemas import ChunkType, ContentBlock
 from utils.exceptions import MaphiverError
 
 
@@ -164,33 +165,67 @@ def render_center_panel():
         
         progress_bar = st.progress(0)
         status_text = st.empty()
+        content_preview = st.empty()
         
         try:
-            progress_bar.progress(10)
+            progress_bar.progress(5)
             status_text.markdown("⏳ 正在提取 PDF 文本...")
             
-            progress_bar.progress(30)
-            status_text.markdown("⏳ 正在调用 AI 格式化...")
+            formatted_content = ""
             
-            result = parse_document(st.session_state.current_document_id)
-            
-            progress_bar.progress(80)
-            status_text.markdown("⏳ 处理解析结果...")
-            
-            st.session_state.parsed_content = result.raw_markdown
-            st.session_state.total_pages = result.total_pages
-            st.session_state.parsed_blocks = result.blocks
-            
-            session = create_session(st.session_state.current_document_id)
-            st.session_state.current_session_id = session.id
-            
-            progress_bar.progress(100)
-            status_text.markdown("✅ 解析完成！")
-            
-            st.session_state.page_stage = "ready"
-            st.session_state.qa_comments = []
-            st.rerun()
-            
+            for chunk in parse_document_stream(st.session_state.current_document_id):
+                if chunk.type == ChunkType.TEXT:
+                    if chunk.metadata:
+                        stage = chunk.metadata.get("stage", "")
+                        if stage == "extracting":
+                            progress_bar.progress(10)
+                            status_text.markdown("⏳ 正在提取 PDF 文本...")
+                        elif stage == "extracted":
+                            progress_bar.progress(30)
+                            total_pages = chunk.metadata.get("total_pages", 0)
+                            st.session_state.total_pages = total_pages
+                            status_text.markdown(f"⏳ 已提取 {total_pages} 页，正在调用 AI 格式化...")
+                        elif stage == "formatting":
+                            progress_bar.progress(35)
+                            status_text.markdown("⏳ AI 正在格式化文档...")
+                        elif stage == "streaming":
+                            progress_bar.progress(50)
+                            formatted_content += chunk.content or ""
+                            content_preview.markdown(formatted_content)
+                    else:
+                        formatted_content += chunk.content or ""
+                        content_preview.markdown(formatted_content)
+                        
+                elif chunk.type == ChunkType.DONE:
+                    progress_bar.progress(90)
+                    status_text.markdown("⏳ 处理解析结果...")
+                    
+                    if chunk.metadata:
+                        st.session_state.parsed_content = chunk.metadata.get("raw_markdown", "")
+                        st.session_state.total_pages = chunk.metadata.get("total_pages", 0)
+                        
+                        blocks_data = chunk.metadata.get("blocks", [])
+                        st.session_state.parsed_blocks = [
+                            ContentBlock(**b) for b in blocks_data
+                        ]
+                    
+                    session = create_session(st.session_state.current_document_id)
+                    st.session_state.current_session_id = session.id
+                    
+                    progress_bar.progress(100)
+                    status_text.markdown("✅ 解析完成！")
+                    content_preview.empty()
+                    
+                    st.session_state.page_stage = "ready"
+                    st.session_state.qa_comments = []
+                    st.rerun()
+                    
+                elif chunk.type == ChunkType.ERROR:
+                    progress_bar.progress(0)
+                    status_text.markdown(f"❌ 解析失败: {chunk.error_message}")
+                    st.session_state.page_stage = "idle"
+                    break
+                    
         except Exception as e:
             progress_bar.progress(0)
             status_text.markdown("❌ 解析失败")
@@ -198,6 +233,7 @@ def render_center_panel():
     
     elif st.session_state.page_stage == "ready":
         st.markdown("**文档内容**")
+        st.markdown("*复制文档中的文本，粘贴到下方输入框进行提问*")
         
         if st.session_state.parsed_content:
             st.markdown(st.session_state.parsed_content)
@@ -207,7 +243,7 @@ def render_center_panel():
         st.markdown("---")
         
         st.markdown("**📝 选中文本提问**")
-        st.markdown("在下方输入框中粘贴或输入你想提问的文本段落：")
+        st.markdown("复制文档中的文本段落，粘贴到下方：")
         
         selected_text = st.text_area(
             "选中的文本",

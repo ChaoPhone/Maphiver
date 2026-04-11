@@ -93,6 +93,7 @@ class StreamChunk:
     type: ChunkType
     content: Optional[str] = None
     error_message: Optional[str] = None
+    metadata: Optional[dict] = None
     
     def to_dict(self) -> dict:
         result = {"type": self.type.value}
@@ -100,4 +101,6 @@ class StreamChunk:
             result["content"] = self.content
         if self.error_message:
             result["error_message"] = self.error_message
+        if self.metadata:
+            result["metadata"] = self.metadata
         return result

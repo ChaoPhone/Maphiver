@@ -9,6 +9,7 @@ from .session_service import (
 from .document_service import (
     upload_document,
     parse_document,
+    parse_document_stream,
     get_document,
     delete_document,
     list_documents,
@@ -41,6 +42,7 @@ __all__ = [
     "get_session_with_document",
     "upload_document",
     "parse_document",
+    "parse_document_stream",
     "get_document",
     "delete_document",
     "list_documents",
