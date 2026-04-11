@@ -16,8 +16,8 @@ const parseProgress = ref(0)
 const parseStage = ref('')
 const currentDocId = ref('')
 
-function handleFileChange(file: File) {
-  fileList.value = [file]
+function handleFileChange(uploadFile: any) {
+  fileList.value = [uploadFile.raw]
   return false
 }
 
