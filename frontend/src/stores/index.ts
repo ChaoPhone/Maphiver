@@ -89,22 +89,35 @@ export const useSessionStore = defineStore('session', () => {
   async function askQuestion(question: string, selectedText: string, blockId?: string) {
     if (!currentSession.value) return
     
-    await api.askQuestion(
-      currentSession.value.id,
+    const tempMsg: QAMessage = {
+      id: 'temp-' + Date.now(),
+      session_id: currentSession.value.id,
       question,
-      selectedText,
-      blockId,
-      (chunk) => {
-        if (chunk.type === 'text' && chunk.content) {
-          const lastMsg = qaMessages.value[qaMessages.value.length - 1]
-          if (lastMsg && !lastMsg.answer) {
-            lastMsg.answer += chunk.content
+      selected_text: selectedText,
+      answer: '',
+      block_id: blockId,
+      created_at: new Date().toISOString(),
+    }
+    qaMessages.value.push(tempMsg)
+    
+    try {
+      await api.askQuestionStream(
+        currentSession.value.id,
+        question,
+        selectedText,
+        blockId,
+        (chunk) => {
+          if (chunk.type === 'text' && chunk.content) {
+            tempMsg.answer += chunk.content
           }
         }
-      }
-    )
-    
-    qaMessages.value = await api.getQAHistory(currentSession.value.id)
+      )
+      
+      qaMessages.value = await api.getQAHistory(currentSession.value.id)
+    } catch (error) {
+      qaMessages.value = qaMessages.value.filter(m => m.id !== tempMsg.id)
+      throw error
+    }
   }
   
   return {

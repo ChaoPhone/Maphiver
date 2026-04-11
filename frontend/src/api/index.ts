@@ -83,34 +83,60 @@ export async function getSessions(status?: string): Promise<Session[]> {
   return response.data.sessions
 }
 
-export function askQuestion(
+export async function askQuestionStream(
   sessionId: string,
   question: string,
   selectedText: string,
   blockId?: string,
   onChunk: (chunk: any) => void
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const eventSource = new EventSource(`/api/qa/ask?session_id=${sessionId}&question=${encodeURIComponent(question)}&selected_text=${encodeURIComponent(selectedText)}&block_id=${blockId || ''}`)
-    
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      onChunk(data)
-      
-      if (data.type === 'done') {
-        eventSource.close()
-        resolve()
-      } else if (data.type === 'error') {
-        eventSource.close()
-        reject(new Error(data.error))
+  const response = await fetch('/api/qa/ask', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      session_id: sessionId,
+      question,
+      selected_text: selectedText,
+      block_id: blockId || null,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('No reader available')
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const data = JSON.parse(line.slice(6))
+        onChunk(data)
+        
+        if (data.type === 'done') {
+          return
+        }
+        if (data.type === 'error') {
+          throw new Error(data.error)
+        }
       }
     }
-    
-    eventSource.onerror = (error) => {
-      eventSource.close()
-      reject(error)
-    }
-  })
+  }
 }
 
 export async function getQAHistory(sessionId: string): Promise<QAMessage[]> {
