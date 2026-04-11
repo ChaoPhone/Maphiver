@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDocumentStore, useSessionStore } from '@/stores'
 import { ElMessage, ElProgress } from 'element-plus'
+import { UploadFilled } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const documentStore = useDocumentStore()

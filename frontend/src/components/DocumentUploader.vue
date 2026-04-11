@@ -23,7 +23,7 @@ const handleUpload = async (options: any) => {
   uploadError.value = null
 
   try {
-    const result = await documentStore.uploadDocument(file)
+    const result = await documentStore.uploadFile(file)
     emit('success', result.id)
   } catch (error: any) {
     uploadError.value = error.message || '上传失败'
