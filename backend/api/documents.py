@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from datetime import datetime
 import json
-import uuid
+import aiofiles
 
 from models.schemas import (
     DocumentResponse,
@@ -10,107 +10,125 @@ from models.schemas import (
     ContentBlock,
     ParseProgressChunk,
 )
+from services.document_service import (
+    upload_document,
+    get_document,
+    delete_document,
+    list_documents,
+    parse_document_stream,
+)
+from utils.exceptions import DocumentNotFoundError, DocumentUploadError, ParseError
 
 router = APIRouter()
 
-MOCK_DOCUMENTS = {}
-
 
 @router.post("/upload", response_model=DocumentUploadResponse)
-async def upload_document(file: UploadFile = File(...)):
-    if not file.filename.endswith(".pdf"):
+async def upload_document_api(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="仅支持 PDF 文件")
     
-    doc_id = str(uuid.uuid4())
-    MOCK_DOCUMENTS[doc_id] = {
-        "id": doc_id,
-        "filename": file.filename,
-        "file_path": f"/data/uploads/{doc_id}_{file.filename}",
-        "page_count": None,
-        "created_at": datetime.now(),
-    }
-    
-    return DocumentUploadResponse(
-        id=doc_id,
-        filename=file.filename,
-        status="uploaded",
-        message="文档上传成功",
-    )
+    try:
+        file_bytes = await file.read()
+        document = upload_document(file_bytes, file.filename)
+        
+        return DocumentUploadResponse(
+            id=document.id,
+            filename=document.filename,
+            status="uploaded",
+            message="文档上传成功",
+        )
+    except DocumentUploadError as e:
+        raise HTTPException(status_code=400, detail=e.message)
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
-async def get_document(document_id: str):
-    if document_id not in MOCK_DOCUMENTS:
+async def get_document_api(document_id: str):
+    document = get_document(document_id)
+    if not document:
         raise HTTPException(status_code=404, detail="文档不存在")
     
-    return DocumentResponse(**MOCK_DOCUMENTS[document_id])
+    return DocumentResponse(
+        id=document.id,
+        filename=document.filename,
+        file_path=document.file_path,
+        page_count=document.page_count,
+        created_at=document.created_at,
+    )
 
 
 @router.delete("/{document_id}")
-async def delete_document(document_id: str):
-    if document_id not in MOCK_DOCUMENTS:
+async def delete_document_api(document_id: str):
+    try:
+        delete_document(document_id)
+        return {"status": "deleted", "document_id": document_id}
+    except DocumentNotFoundError:
         raise HTTPException(status_code=404, detail="文档不存在")
-    
-    del MOCK_DOCUMENTS[document_id]
-    return {"status": "deleted", "document_id": document_id}
 
 
 @router.get("/", response_model=list[DocumentResponse])
-async def list_documents():
-    return [DocumentResponse(**doc) for doc in MOCK_DOCUMENTS.values()]
+async def list_documents_api():
+    documents = list_documents()
+    return [
+        DocumentResponse(
+            id=doc.id,
+            filename=doc.filename,
+            file_path=doc.file_path,
+            page_count=doc.page_count,
+            created_at=doc.created_at,
+        )
+        for doc in documents
+    ]
 
 
 @router.post("/{document_id}/parse")
-async def parse_document(document_id: str):
-    if document_id not in MOCK_DOCUMENTS:
-        raise HTTPException(status_code=404, detail="文档不存在")
-    
+async def parse_document_api(document_id: str):
     async def generate():
-        stages = [
-            ("extracting", 10),
-            ("extracted", 30),
-            ("formatting", 50),
-            ("streaming", 70),
-        ]
-        
-        for stage, progress in stages:
-            chunk = ParseProgressChunk(
-                type="progress",
-                progress=progress,
-                stage=stage,
-            )
-            yield f"data: {json.dumps(chunk.model_dump())}\n\n"
-        
-        mock_blocks = [
-            ContentBlock(
-                id=str(uuid.uuid4()),
-                type="text",
-                page=1,
-                chapter_path=["第一章"],
-                content="这是第一个段落的内容示例。",
-            ),
-            ContentBlock(
-                id=str(uuid.uuid4()),
-                type="text",
-                page=1,
-                chapter_path=["第一章", "1.1节"],
-                content="这是第二个段落的内容示例。",
-            ),
-        ]
-        
-        for block in mock_blocks:
-            chunk = ParseProgressChunk(
-                type="block",
-                block=block,
-            )
-            yield f"data: {json.dumps(chunk.model_dump())}\n\n"
-        
-        done_chunk = ParseProgressChunk(
-            type="done",
-            total_pages=1,
-            blocks=mock_blocks,
-            raw_markdown="# 第一章\n\n这是第一个段落的内容示例。\n\n## 1.1节\n\n这是第二个段落的内容示例。",
-        )
-        yield f"data: {json.dumps(done_chunk.model_dump())}\n\n"
+        try:
+            for chunk in parse_document_stream(document_id):
+                if chunk.type.value == "text":
+                    if chunk.metadata:
+                        progress_chunk = ParseProgressChunk(
+                            type="progress",
+                            stage=chunk.metadata.get("stage"),
+                            progress=_get_progress(chunk.metadata.get("stage")),
+                        )
+                        yield f"data: {json.dumps(progress_chunk.model_dump())}\n\n"
+                    
+                    if chunk.content:
+                        yield f"data: {json.dumps({'type': 'text', 'content': chunk.content})}\n\n"
+                
+                elif chunk.type.value == "done":
+                    metadata = chunk.metadata or {}
+                    blocks_data = metadata.get("blocks", [])
+                    blocks = [ContentBlock(**b) for b in blocks_data] if blocks_data else []
+                    
+                    done_chunk = ParseProgressChunk(
+                        type="done",
+                        total_pages=metadata.get("total_pages"),
+                        blocks=blocks,
+                        raw_markdown=metadata.get("raw_markdown"),
+                    )
+                    yield f"data: {json.dumps(done_chunk.model_dump())}\n\n"
+                
+                elif chunk.type.value == "error":
+                    error_chunk = ParseProgressChunk(
+                        type="error",
+                        error=chunk.error_message,
+                    )
+                    yield f"data: {json.dumps(error_chunk.model_dump())}\n\n"
+                    
+        except Exception as e:
+            error_chunk = ParseProgressChunk(type="error", error=str(e))
+            yield f"data: {json.dumps(error_chunk.model_dump())}\n\n"
     
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+def _get_progress(stage: str) -> int:
+    progress_map = {
+        "extracting": 10,
+        "extracted": 30,
+        "formatting": 50,
+        "streaming": 70,
+    }
+    return progress_map.get(stage, 0)

@@ -2,11 +2,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api import documents, sessions, qa, health
+from repositories.database import init_db
+
+init_db()
 
 app = FastAPI(
     title="Maphiver API",
     description="流式知识河 - FastAPI 后端",
-    version="C1",
+    version="C2",
 )
 
 app.add_middleware(
