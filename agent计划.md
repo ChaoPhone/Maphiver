@@ -1,0 +1,464 @@
+
+# 迭代计划
+
+### A0：工程初始化与数据模型冻结
+
+目标：Streamlit 应用可启动，数据库模型就绪。
+
+任务：
+
+1. 初始化项目目录结构。
+2. 创建 `requirements.txt`，包含核心依赖：
+   - `streamlit`
+   - `pydantic`
+   - `aiosqlite`（异步 SQLite）
+   - `python-dotenv`
+   - `openai`（DeepSeek API 兼容）
+3. 实现 `models/schemas.py`：定义所有 Pydantic 数据模型。
+4. 实现 `repositories/database.py`：数据库连接、建表、基础 CRUD。
+5. 实现 `utils/exceptions.py`：异常类定义。
+6. 创建 `config.py`：配置管理。
+7. 创建最小可运行的 `app.py`：显示"Hello Maphiver"。
+
+完成标准：
+
+1. `streamlit run app.py` 可启动。
+2. 数据库文件 `data/maphiver.db` 自动创建。
+3. 所有表结构正确创建。
+4. 健康检查：数据库连接正常。
+
+---
+
+### A1：页面骨架与状态管理
+
+目标：三栏布局可渲染，状态流转正确。
+
+前端任务：
+
+1. 实现 `app.py` 三栏布局（左/中/右）。
+2. 左栏：会话档案区（空状态占位）。
+3. 中栏：上传区（初始化阶段）。
+4. 右栏：默认折叠。
+5. 实现 `st.session_state` 状态管理：
+   - `current_session_id`
+   - `page_stage`（idle / parsing / ready）
+   - `selected_text`
+   - `right_panel_open`
+
+后端任务：
+
+1. 实现 `session_service.py` 的 `create_session`、`get_session`。
+2. 实现 `document_service.py` 的 `upload_document`、`get_document`。
+
+完成标准：
+
+1. 三栏布局正确显示。
+2. 状态切换符合预期（idle -> parsing -> ready）。
+3. 左栏可显示空状态提示。
+
+---
+
+### A2：上传解析与中栏阅读切换
+
+目标：打通"上传 -> 解析 -> 阅读"主路径。
+
+前端任务：
+
+1. 中栏实现文件上传组件（`st.file_uploader`）。
+2. 上传后触发解析，显示进度。
+3. 解析完成后切换中栏为"面包屑 + 结构化正文"。
+4. 左栏显示文档元信息。
+
+后端任务：
+
+1. 实现 `document_service.parse_document`：PDF 解析、结构化提取。
+2. 返回结构化正文块：`block_id / page / chapter_path / content`。
+3. 将解析结果存入数据库或本地文件。
+
+完成标准：
+
+1. 上传前中栏显示上传区。
+2. 解析后上传区消失，中栏显示正文。
+3. 左栏显示文档元数据。
+
+---
+## A2.5 规划：PyMuPDF + AI 预处理
+
+### 流程设计
+
+```
+PDF 上传 → PyMuPDF 提取纯文本 → DeepSeek API 格式化 → 结构化 Markdown → 显示
+```
+
+### 任务拆解
+
+| 任务ID | 内容 | 说明 |
+|--------|------|------|
+| A2.5-1 | 安装 PyMuPDF | `pip install pymupdf` |
+| A2.5-2 | 实现 PDF 文本提取 | 使用 `fitz` 提取每页文本 |
+| A2.5-3 | 实现 AI 预处理服务 | 调用 DeepSeek API 将纯文本转为 Markdown |
+| A2.5-4 | 更新 document_service.py | 整合提取 + AI 格式化流程 |
+| A2.5-5 | 更新 app.py | 显示格式化后的 Markdown |
+| A2.5-6 | 验证完整流程 | 上传 PDF → 提取 → AI 格式化 → 显示 |
+
+### AI 预处理 Prompt 设计
+
+```
+你是一个文档格式化助手。请将以下从 PDF 提取的纯文本转换为结构化的 Markdown 格式：
+
+要求：
+1. 识别标题层级（#, ##, ###）
+2. 识别列表项（- 或 1. 2. 3.）
+3. 识别数学公式，用 $...$ 或 $$...$$ 包裹
+4. 识别表格，用 Markdown 表格格式
+5. 保持段落结构清晰
+6. 不要添加原文没有的内容
+
+原始文本：
+{extracted_text}
+
+请输出格式化后的 Markdown：
+```
+
+### 技术细节
+
+| 组件 | 实现 |
+|------|------|
+| **PDF 提取** | `fitz.open()` + `page.get_text()` |
+| **AI 调用** | DeepSeek API（已有配置） |
+| **流式输出** | Generator yield StreamChunk |
+| **状态管理** | `st.session_state.parsed_content` |
+
+### 预估时间
+
+| 步骤 | 预估 |
+|------|------|
+| PyMuPDF 提取 | <1秒/页 |
+| AI 格式化 | 3-5秒（取决于文本长度） |
+| 总流程 | 约 10-15秒（10页 PDF） |
+
+---
+
+### A3：选中提问与流式回答
+
+目标：打通核心学习价值链。
+
+#### A3.1 技术方案
+
+| 组件 | 实现方式 |
+|------|---------|
+| **文本选中** | Streamlit 原生 `st.text_area` + 手动输入选区（MVP 简化方案） |
+| **右栏展开** | `st.session_state.right_panel_open` 状态控制 |
+| **快捷提问** | 预设按钮：详细、简化、类比、举例 |
+| **自由提问** | `st.text_input` + 发送按钮 |
+| **流式回答** | DeepSeek API `stream=True` + Generator |
+| **消息存储** | `messages` 表 + `st.session_state.messages` |
+> 显示的形式有点像文档评论，用户选中文本后，点击提问按钮，模型会根据选中的文本回答问题，同时记录下用户的问题和回答。并且自动显示4-5行，自动折叠多余部分
+#### A3.2 任务拆解
+
+| 任务ID | 内容 | 文件 | 说明 |
+|--------|------|------|------|
+| A3-1 | 实现 qa_service.py | services/qa_service.py | ask_question + stream_answer 函数 |
+| A3-2 | 扩展 ai_service.py | services/ai_service.py | 添加问答专用 Prompt 模板 |
+| A3-3 | 实现 footprint_service.py | services/footprint_service.py | record_footprint 函数 |
+| A3-4 | 更新 repositories/database.py | repositories/database.py | MessageRepository + FootprintRepository |
+| A3-5 | 更新右栏 UI | app.py | 选区预览 + 快捷提问 + 流式渲染 |
+| A3-6 | 验证完整流程 | - | 选中 → 提问 → 流式回答 → 入库 |
+
+#### A3.3 Prompt 模板设计
+
+```python
+QA_SYSTEM_PROMPT = """你是一个专业的学习助手。用户正在阅读一篇文档，并选中了部分内容向你提问。
+请基于选中的文本内容回答问题，回答应该：
+1. 紧扣选中的文本，不要偏离主题
+2. 如果涉及数学公式，使用 LaTeX 格式（$...$ 或 $$...$$）
+3. 回答简洁清晰，适合学习场景"""
+
+QA_USER_PROMPT = """选中的文本：
+{selected_text}
+
+问题：{question}"""
+```
+> 注意：选中文本内容喂给ai时，要注意不仅要喂给当前的文字，还要包含选中的该block及邻近2个block（总共3个block）的内容作为上下文输入。
+
+#### A3.4 流式渲染策略
+
+```python
+def render_streaming_answer(session_id: str, question: str, selected_text: str):
+    answer_placeholder = st.empty()
+    full_content = ""
+    
+    for chunk in stream_answer(session_id, question, selected_text):
+        if chunk.type == ChunkType.TEXT:
+            full_content += chunk.content
+            answer_placeholder.markdown(full_content)
+        elif chunk.type == ChunkType.DONE:
+            save_message(session_id, "assistant", full_content)
+            record_footprint(session_id, "qa_complete")
+        elif chunk.type == ChunkType.ERROR:
+            st.error(f"生成出错: {chunk.error_message}")
+            break
+```
+
+#### A3.5 完成标准
+
+1. ✅ 右栏可展开/关闭
+2. ✅ 选区预览正确显示
+3. ✅ 快捷提问按钮可触发问答
+4. ✅ 自由提问可发送
+5. ✅ 流式回答实时渲染
+6. ✅ 消息入库成功
+7. ✅ 学习足迹记录成功
+
+---
+#### B3.1 修复问题的建议方法
+> 当前的向ai提问按钮未正常显示，需要在选中部分的第一行的右侧空处显示这个小目录
+> 同时修改初始提示词为：如果用户给出的内容中存在题目，就同时生成题目+答案。
+> 初始文档生成支持流式输出
+
+#### B3.2 交互体验优化方案
+
+> **目标**：更专注、更沉浸、更简洁、更方便的阅读学习体验
+> **核心思路**：将提问交互从"中栏底部"迁移到"右栏"，实现"选中→右栏操作→右栏输出"的闭环
+
+##### B3.2.1 当前问题分析
+
+| 问题 | 现状 | 影响 |
+|------|------|------|
+| 输入位置分散 | 中栏底部有输入区，右栏有输出区 | 用户视线来回切换，打断阅读节奏 |
+| 交互不够沉浸 | 需要手动复制粘贴文本 | 操作繁琐，不够自然 |
+| 界面不够简洁 | 中栏底部堆叠多个输入组件 | 干扰阅读专注度 |
+| 流程不够连贯 | 选中→复制→粘贴→提问→看回答 | 步骤多，体验割裂 |
+
+##### B3.2.2 优化方案设计
+
+**核心交互流程**：
+```
+中栏阅读 → 鼠标选中文字 → 右栏自动激活 → 右栏选择/输入 → 右栏流式输出
+```
+
+**布局调整**：
+
+| 区域 | 调整内容 |
+|------|---------|
+| **中栏** | 纯净阅读区，只显示文档内容，移除底部输入组件 |
+| **右栏** | 成为"交互中心"，包含：选中预览、提问按钮、AI回复 |
+
+**右栏交互结构**：
+
+```
+┌─────────────────────────────┐
+│  🎯 快捷提问                 │  ← 4个预设按钮
+│  [详细] [简化] [类比] [举例] [自定义] │
+├─────────────────────────────┤
+│  💬 自由提问                 │  ← 文本输入 + 发送按钮
+│  [输入框____________] [发送] │
+├─────────────────────────────┤
+│  🤖 AI 回复                  │  ← 流式输出区（评论式）
+│  > 矩阵的秩是...             │
+│  > （流式渲染中...）         │
+└─────────────────────────────┘
+```
+>如果AI开始回复，则取消提问栏并缩小字号（效果就像谷歌的登录邮箱界面的输入框）
+>当且仅当按下自定义时才显示自由提问框
+
+##### B3.2.3 技术实现路径
+方案 ：成熟第三方组件库（开箱即用，无需自行开发）
+社区已有成熟的、专门解决划词选中 / 高亮 / 监听的 Streamlit 组件，直接安装使用，无需编写前端代码，无 iframe 通信限制。
+text-highlighter：专门用于文本划词选中、标注、高亮，支持实时返回选中文本的起止位置和内容，原生支持双向通信。
+python
+运行
+# 安装：pip install text-highlighter
+from text_highlighter import text_highlighter
+import streamlit as st
+
+# 核心用法
+result = text_highlighter(
+    text="待划词的长文本内容",
+    labels=[("选中内容", "blue")],
+)
+# 直接获取用户划词选中的内容，触发右栏展开
+if result:
+    st.write("选中的文本：", result)
+streamlit-code-editor：若需要代码 / 文本的精准划词监听，支持response_mode="select"，选中文本可实时返回给 Python 端，同样基于官方规范的自定义组件开发，无通信限制。
+
+##### B3.2.4 具体任务拆解
+
+| 任务ID | 内容 | 文件 | 说明 |
+|--------|------|------|------|
+| B3.2-1 | 移除中栏底部输入区 | app.py | 清理 `render_center_panel()` 中的提问组件 |
+| B3.2-2 | 重构右栏为交互中心 | app.py | `render_right_panel()` 包含选中预览+提问+回复 |
+| B3.2-3 | 实现选中状态同步 | app.py | 右栏 `text_area` 与 `st.session_state.selected_text` 绑定 |
+| B3.2-4 | 优化流式输出显示 | app.py | 评论式卡片布局，自动折叠长内容 |
+| B3.2-5 | 添加历史问答折叠区 | app.py | 展示过往问答，点击展开详情 |
+| B3.2-6 | 验证完整流程 | - | 选中→右栏提问→流式回复→历史记录 |
+
+##### B3.2.5 交互细节设计
+
+**快捷提问按钮**：
+- 5 个预设按钮横向排列
+- 点击后（除了第五个）立即触发 AI 回复
+- 按钮状态：点击后收起，简要状态说明在文本框左上角（谷歌风格），等待回复完成
+
+**自由提问区**：
+- 输入框 + 发送按钮
+- 发送后收起
+
+**AI 回复区**：
+- 评论式卡片布局（右侧深黄色边框）
+- 流式渲染，实时更新
+- 回复完成后自动折叠超过 5 行的内容
+- "摘录为知识卡"按钮（A4 功能）
+- 排列在原选中区的正右侧
+
+##### B3.2.6 状态管理设计
+
+```python
+# st.session_state 新增/调整
+st.session_state.selected_text      # 当前选中文本
+st.session_state.is_streaming       # 是否正在生成回复
+st.session_state.current_question   # 当前问题
+st.session_state.qa_history         # 历史问答列表
+st.session_state.right_panel_mode   # 右栏模式：idle/active/streaming
+```
+
+##### B3.2.7 预期效果
+
+| 维度 | 优化前 | 优化后 |
+|------|--------|--------|
+| **专注度** | 中栏底部有输入区干扰 | 中栏纯净阅读，右栏专注交互 |
+| **沉浸感** | 视线来回切换 | 选中后右栏自动激活，视线聚焦 |
+| **简洁度** | 多个输入组件堆叠 | 右栏结构清晰，层次分明 |
+| **便捷度** | 复制→粘贴→提问 | 选中→点击按钮→看回复 |
+
+
+### A4：知识卡与归档恢复
+
+目标：沉淀与回溯闭环。
+
+#### A4.1 技术方案
+
+| 组件 | 实现方式 |
+|------|---------|
+| **知识卡创建** | 回答区"摘录"按钮 + 批注输入框 |
+| **卡片存储** | `knowledge_cards` 表 |
+| **左栏展示** | 最近 5 张卡片预览 |
+| **归档按钮** | 顶部栏"汇入知识河"按钮 |
+| **历史恢复** | 点击历史会话 → 加载完整数据 |
+
+#### A4.2 任务拆解
+
+| 任务ID | 内容 | 文件 | 说明 |
+|--------|------|------|------|
+| A4-1 | 实现 card_service.py | services/card_service.py | create_card + list_cards + get_card |
+| A4-2 | 更新 repositories/database.py | repositories/database.py | KnowledgeCardRepository |
+| A4-3 | 更新右栏 UI | app.py | 回答区添加"摘录为知识卡"按钮 |
+| A4-4 | 更新左栏 UI | app.py | 展示最近知识卡 + 历史会话列表 |
+| A4-5 | 实现归档恢复 | app.py | 点击历史会话恢复完整数据 |
+| A4-6 | 验证完整流程 | - | 回答 → 摘录 → 卡片 → 归档 → 恢复 |
+
+#### A4.3 知识卡数据结构
+
+```python
+class KnowledgeCard(BaseModel):
+    id: str
+    session_id: str
+    source_text: str          # 摘录的原文
+    annotation: Optional[str]  # 用户批注
+    block_id: Optional[str]    # 来源位置
+    created_at: datetime
+```
+
+#### A4.4 归档恢复流程
+
+```
+点击历史会话
+    ↓
+加载 session 数据
+    ↓
+加载 document 数据
+    ↓
+加载 messages 数据
+    ↓
+加载 knowledge_cards 数据
+    ↓
+恢复到 st.session_state
+    ↓
+page_stage = "ready"
+```
+
+#### A4.5 完成标准
+
+1. ✅ 回答区"摘录"按钮可点击
+2. ✅ 批注弹层可输入并保存
+3. ✅ 左栏展示最近知识卡
+4. ✅ "汇入知识河"按钮可归档
+5. ✅ 历史会话列表正确显示
+6. ✅ 点击历史会话可完整恢复
+7. ✅ 会话状态 draft → archived 可追踪
+
+---
+
+### A5：LaTeX 公式渲染闭环
+
+目标：中栏正文与右栏回答都稳定渲染公式。
+
+前端任务：
+
+1. 集成 MathJax/KaTeX 渲染。
+2. 中栏正文支持行内/块级公式。
+3. 流式回答采用"段落完成后渲染"策略。
+
+后端任务：
+
+1. 标准化公式输出（`$...$` / `$$...$$`）。
+2. 清洗非法标记，避免渲染报错。
+
+完成标准：
+
+1. 行内公式与块级公式正确显示。
+2. 长公式不破版（可横向滚动）。
+3. 流式场景不闪烁、不跳版。
+
+---
+
+## 8. 测试拆解
+
+### F1：前端测试
+
+1. 三栏显隐状态测试。
+2. 文本选中与右栏展开测试。
+3. 公式渲染视觉回归测试。
+
+### B1：后端测试
+
+1. 数据库 CRUD 测试。
+2. 会话生命周期测试。
+3. 流式问答生成器测试。
+
+### E2E：端到端
+
+1. 上传 -> 解析 -> 阅读
+2. 选中 -> 提问 -> 流式回答
+3. 摘录 -> 保存 -> 归档 -> 恢复
+
+---
+
+## 9. 风险与控制
+
+1. 若 DeepSeek API 不稳定，增加重试机制和超时处理。
+2. 若公式流式渲染抖动，采用"段落完成后渲染"策略。
+3. 若自定义组件开发周期长，先用 `st.markdown` 替代，后续迭代优化。
+4. 若模块过拆导致阅读困难，回收合并到 `services` 层。
+
+---
+
+## 10. 本周开工清单
+
+1. 完成 A0（工程初始化 + 数据模型冻结）
+2. 完成 A1（页面骨架 + 状态管理）
+3. 完成 A2（上传解析与中栏显隐）
+4. 完成 A3 最小链路（选中 -> 提问 -> 流式回答）
+5. 完成 A5 首轮（中栏公式渲染）
+
+完成以上 5 项后，即形成 Streamlit 架构的 MVP 可演示主链路。

@@ -48,6 +48,10 @@ def init_session_state():
         st.session_state.streaming_answer = ""
     if "is_streaming" not in st.session_state:
         st.session_state.is_streaming = False
+    if "show_free_input" not in st.session_state:
+        st.session_state.show_free_input = False
+    if "active_quick_btn" not in st.session_state:
+        st.session_state.active_quick_btn = None
 
 
 def handle_error(error: Exception):
@@ -233,48 +237,12 @@ def render_center_panel():
     
     elif st.session_state.page_stage == "ready":
         st.markdown("**文档内容**")
-        st.markdown("*复制文档中的文本，粘贴到下方输入框进行提问*")
+        st.markdown("*阅读文档内容，在右侧面板输入选中的文本进行提问*")
         
         if st.session_state.parsed_content:
             st.markdown(st.session_state.parsed_content)
         else:
             st.info("暂无解析内容")
-        
-        st.markdown("---")
-        
-        st.markdown("**📝 选中文本提问**")
-        st.markdown("复制文档中的文本段落，粘贴到下方：")
-        
-        selected_text = st.text_area(
-            "选中的文本",
-            value=st.session_state.selected_text,
-            height=100,
-            key="text_selector",
-            placeholder="在此粘贴或输入文档中的文本...",
-        )
-        
-        st.session_state.selected_text = selected_text
-        
-        if selected_text.strip():
-            st.markdown("**快捷提问**")
-            quick_cols = st.columns(4)
-            
-            quick_types = ["详细", "简化", "类比", "举例"]
-            for i, q_type in enumerate(quick_types):
-                if quick_cols[i].button(q_type, use_container_width=True, key=f"quick_{q_type}"):
-                    question = get_quick_question(q_type)
-                    if question:
-                        handle_question(selected_text, question)
-        
-        st.markdown("**自由提问**")
-        free_question = st.text_input(
-            "输入你的问题",
-            key="free_question",
-            placeholder="例如：这个定理有什么应用？",
-        )
-        
-        if st.button("向 AI 提问", type="primary", use_container_width=True) and free_question:
-            handle_question(selected_text, free_question)
 
 
 def handle_question(selected_text: str, question: str):
@@ -306,6 +274,7 @@ def handle_question(selected_text: str, question: str):
         "question": question,
         "answer": "",
         "is_expanded": True,
+        "is_streaming": True,
     }
     st.session_state.qa_comments.append(comment)
     
@@ -326,84 +295,233 @@ def truncate_text_for_display(text: str, max_lines: int = 5) -> tuple:
     return truncated, True
 
 
-def render_qa_comments():
+def render_right_panel():
     st.markdown("### 💬 文档问答")
-    st.markdown("<style>.qa-comment { border-left: 3px solid #4CAF50; padding-left: 10px; margin-bottom: 15px; }</style>", unsafe_allow_html=True)
     
-    if not st.session_state.qa_comments:
-        st.info("暂无问答记录，选中文本后点击提问按钮开始")
+    st.markdown(
+        """
+        <style>
+        .qa-container {
+            border-left: 3px solid #FFB800;
+            padding-left: 12px;
+            margin-bottom: 16px;
+            background: #FFFBF0;
+            border-radius: 0 8px 8px 0;
+        }
+        .collapsed-input {
+            font-size: 0.85em;
+            color: #666;
+            background: #f5f5f5;
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+        .selected-text-preview {
+            font-size: 0.9em;
+            color: #555;
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 4px;
+            border-left: 3px solid #4CAF50;
+            margin-bottom: 12px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    if st.session_state.page_stage != "ready":
+        st.info("请先上传并解析文档")
         return
     
-    for i, comment in enumerate(st.session_state.qa_comments):
-        with st.container():
-            st.markdown(f"<div class='qa-comment'>", unsafe_allow_html=True)
-            
-            question_preview = comment['question'][:30] + "..." if len(comment['question']) > 30 else comment['question']
-            
-            selected_display, needs_expand = truncate_text_for_display(comment['selected_text'], max_lines=4)
-            
-            if needs_expand:
-                with st.expander(f"📝 **选中文本** (点击展开完整内容)", expanded=False):
-                    st.markdown(f"> {comment['full_selected_text']}")
+    if st.session_state.is_streaming:
+        render_streaming_qa()
+        return
+    
+    st.markdown("**📝 输入选中的文本**")
+    st.markdown("*从左侧文档复制文本，粘贴到下方输入框*")
+    
+    input_text = st.text_area(
+        "选中的文本内容",
+        value=st.session_state.selected_text,
+        height=80,
+        key="selected_text_input",
+        placeholder="在此粘贴文档中想要提问的文本段落...",
+        label_visibility="collapsed",
+    )
+    
+    if input_text != st.session_state.selected_text:
+        st.session_state.selected_text = input_text
+        st.session_state.show_free_input = False
+        st.session_state.active_quick_btn = None
+    
+    if not st.session_state.selected_text.strip():
+        st.info("👆 请输入选中的文本内容")
+        render_history_qa()
+        return
+    
+    st.markdown(
+        f'<div class="selected-text-preview">📝 <b>已选中:</b> {st.session_state.selected_text[:100]}{"..." if len(st.session_state.selected_text) > 100 else ""}</div>',
+        unsafe_allow_html=True,
+    )
+    
+    st.markdown("**🎯 快捷提问**")
+    quick_cols = st.columns(5)
+    quick_types = ["详细", "简化", "类比", "举例", "自定义"]
+    
+    for i, q_type in enumerate(quick_types):
+        btn_type = "primary" if st.session_state.active_quick_btn == q_type else "secondary"
+        if quick_cols[i].button(q_type, use_container_width=True, type=btn_type, key=f"quick_btn_{q_type}"):
+            if q_type == "自定义":
+                st.session_state.show_free_input = True
+                st.session_state.active_quick_btn = q_type
             else:
-                st.markdown(f"📝 **选中文本:**")
-                st.markdown(f"> {selected_display}")
-            
-            st.markdown(f"❓ **问题:** {comment['question']}")
-            
-            st.markdown("🤖 **回答:**")
-            
-            if i == len(st.session_state.qa_comments) - 1 and st.session_state.is_streaming:
-                answer_placeholder = st.empty()
-                full_answer = ""
-                
-                context_text = get_context_blocks(
-                    st.session_state.parsed_blocks,
-                    st.session_state.selected_block_id,
-                    comment['full_selected_text'],
+                st.session_state.show_free_input = False
+                st.session_state.active_quick_btn = q_type
+                question = get_quick_question(q_type)
+                if question:
+                    handle_question(st.session_state.selected_text, question)
+    
+    if st.session_state.show_free_input:
+        st.markdown("**💬 自由提问**")
+        free_question = st.text_input(
+            "输入你的问题",
+            key="free_question_input",
+            placeholder="例如：这个定理有什么应用？",
+            label_visibility="collapsed",
+        )
+        
+        if st.button("发送", type="primary", use_container_width=True, key="send_free_question"):
+            if free_question.strip():
+                handle_question(st.session_state.selected_text, free_question)
+    
+    st.markdown("---")
+    render_history_qa()
+
+
+def render_streaming_qa():
+    if not st.session_state.qa_comments:
+        return
+    
+    current_qa = st.session_state.qa_comments[-1]
+    
+    st.markdown(
+        f"""
+        <div class="collapsed-input">
+            📝 选中: {current_qa['selected_text'][:50]}...
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    st.markdown(f"**❓ 问题:** {current_qa['question']}")
+    
+    st.markdown(
+        """
+        <style>
+        .streaming-answer {
+            border-left: 3px solid #FFB800;
+            padding-left: 12px;
+            background: #FFFBF0;
+            border-radius: 0 8px 8px 0;
+            min-height: 60px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    st.markdown("**🤖 AI 回复:**")
+    answer_placeholder = st.empty()
+    full_answer = ""
+    
+    context_text = get_context_blocks(
+        st.session_state.parsed_blocks,
+        st.session_state.selected_block_id,
+        current_qa['full_selected_text'],
+    )
+    if not context_text:
+        context_text = current_qa['full_selected_text']
+    
+    for chunk in stream_answer(
+        st.session_state.current_session_id,
+        current_qa['question'],
+        current_qa['full_selected_text'],
+        context_text,
+    ):
+        if chunk.type == ChunkType.TEXT:
+            full_answer += chunk.content or ""
+            answer_display, answer_needs_expand = truncate_text_for_display(full_answer, max_lines=5)
+            if answer_needs_expand:
+                answer_placeholder.markdown(
+                    f"""
+                    <div class="streaming-answer">
+                        {answer_display}
+                        <br><small style="color:#888;">*(回答较长，完成后可展开查看完整内容)*</small>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
                 )
-                if not context_text:
-                    context_text = comment['full_selected_text']
-                
-                for chunk in stream_answer(
-                    st.session_state.current_session_id,
-                    comment['question'],
-                    comment['full_selected_text'],
-                    context_text,
-                ):
-                    if chunk.type == ChunkType.TEXT:
-                        full_answer += chunk.content or ""
-                        answer_display, answer_needs_expand = truncate_text_for_display(full_answer, max_lines=5)
-                        if answer_needs_expand:
-                            answer_placeholder.markdown(f"{answer_display}\n\n*(回答较长，完成后可展开查看完整内容)*")
-                        else:
-                            answer_placeholder.markdown(full_answer)
-                    elif chunk.type == ChunkType.DONE:
-                        comment['answer'] = full_answer
-                        st.session_state.is_streaming = False
-                        record_footprint(
-                            st.session_state.current_session_id,
-                            "qa_complete",
-                            {"question": comment['question']},
-                        )
-                        st.rerun()
-                    elif chunk.type == ChunkType.ERROR:
-                        st.error(f"生成出错: {chunk.error_message}")
-                        st.session_state.is_streaming = False
-                        break
             else:
-                if comment['answer']:
-                    answer_display, answer_needs_expand = truncate_text_for_display(comment['answer'], max_lines=5)
-                    if answer_needs_expand:
-                        with st.expander("查看完整回答", expanded=False):
-                            st.markdown(comment['answer'])
-                    else:
+                answer_placeholder.markdown(
+                    f'<div class="streaming-answer">{full_answer}</div>',
+                    unsafe_allow_html=True,
+                )
+        elif chunk.type == ChunkType.DONE:
+            current_qa['answer'] = full_answer
+            current_qa['is_streaming'] = False
+            st.session_state.is_streaming = False
+            record_footprint(
+                st.session_state.current_session_id,
+                "qa_complete",
+                {"question": current_qa['question']},
+            )
+            st.rerun()
+        elif chunk.type == ChunkType.ERROR:
+            st.error(f"生成出错: {chunk.error_message}")
+            st.session_state.is_streaming = False
+            current_qa['is_streaming'] = False
+            break
+
+
+def render_history_qa():
+    if not st.session_state.qa_comments:
+        return
+    
+    st.markdown("**📜 历史问答**")
+    
+    for i, comment in enumerate(st.session_state.qa_comments):
+        if comment.get('is_streaming', False):
+            continue
+        
+        with st.expander(
+            f"❓ {comment['question'][:30]}{'...' if len(comment['question']) > 30 else ''}",
+            expanded=False,
+        ):
+            st.markdown(
+                f"""
+                <div class="qa-container">
+                    <p><b>📝 选中文本:</b></p>
+                    <p style="font-size:0.9em;color:#555;">{comment['selected_text']}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            
+            st.markdown(f"**🤖 回答:**")
+            if comment['answer']:
+                answer_display, answer_needs_expand = truncate_text_for_display(comment['answer'], max_lines=5)
+                if answer_needs_expand:
+                    st.markdown(answer_display)
+                    with st.expander("查看完整回答", expanded=False):
                         st.markdown(comment['answer'])
                 else:
-                    st.info("等待生成回答...")
+                    st.markdown(comment['answer'])
+            else:
+                st.info("等待生成回答...")
             
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.markdown("---")
+            if st.button("摘录为知识卡", key=f"card_btn_{i}", use_container_width=True):
+                st.info("🚧 知识卡片功能开发中...")
 
 
 def render_footprint_section():
@@ -447,7 +565,7 @@ def main():
     
     with right_col:
         with st.container():
-            render_qa_comments()
+            render_right_panel()
     
     st.markdown("---")
     render_footprint_section()
