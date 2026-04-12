@@ -14,13 +14,17 @@ logs/
 venv/
 ENV/
 
-# Streamlit
+# Streamlit (original version)
 .streamlit/
 ! .streamlit/config.toml
 
-# Project Data (Database and Uploads)
-maphiver/data/maphiver.db
-maphiver/data/uploads/
+# Backend Data (Database and Uploads)
+backend/data/
+data/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
 
 # IDEs
 .vscode/
@@ -29,3 +33,6 @@ maphiver/data/uploads/
 # OS
 Thumbs.db
 .DS_Store
+
+# Test files
+测试用例.pdf

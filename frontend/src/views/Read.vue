@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore, useDocumentStore } from '@/stores'
 import { marked } from 'marked'
+import katex from 'katex'
 import { ElMessage, ElScrollbar } from 'element-plus'
 import { ChatDotRound, Document, ArrowLeft } from '@element-plus/icons-vue'
 
@@ -18,6 +19,7 @@ const answering = ref(false)
 const streamingAnswer = ref('')
 const activeBlockId = ref<string | null>(null)
 const showQAPanel = ref(true)
+const contentRef = ref<HTMLElement | null>(null)
 
 const sessionId = computed(() => route.params.sessionId as string)
 
@@ -39,6 +41,52 @@ onMounted(async () => {
   }
   loading.value = false
 })
+
+watch(() => documentStore.blocks, async () => {
+  await nextTick()
+  renderLatexInContent()
+}, { deep: true })
+
+function renderLatexInContent() {
+  if (contentRef.value) {
+    const katexElements = contentRef.value.querySelectorAll('.block-content')
+    katexElements.forEach(el => {
+      renderLatexInElement(el as HTMLElement)
+    })
+  }
+}
+
+function renderLatexInElement(el: HTMLElement) {
+  const text = el.innerHTML
+  const inlinePattern = /\$([^$]+)\$/g
+  const displayPattern = /\$\$([^$]+)\$\$/g
+  
+  let result = text
+  
+  result = result.replace(displayPattern, (match, formula) => {
+    return `<span class="katex-display" data-formula="${encodeURIComponent(formula)}"></span>`
+  })
+  
+  result = result.replace(inlinePattern, (match, formula) => {
+    return `<span class="katex-inline" data-formula="${encodeURIComponent(formula)}"></span>`
+  })
+  
+  el.innerHTML = result
+  
+  el.querySelectorAll('.katex-display').forEach(span => {
+    const formula = decodeURIComponent(span.getAttribute('data-formula') || '')
+    try {
+      katex.render(formula, span as HTMLElement, { displayMode: true, throwOnError: false })
+    } catch (e) {}
+  })
+  
+  el.querySelectorAll('.katex-inline').forEach(span => {
+    const formula = decodeURIComponent(span.getAttribute('data-formula') || '')
+    try {
+      katex.render(formula, span as HTMLElement, { displayMode: false, throwOnError: false })
+    } catch (e) {}
+  })
+}
 
 function handleTextSelection(blockId: string) {
   const selection = window.getSelection()
@@ -109,7 +157,7 @@ function renderBlockContent(content: string): string {
       <el-container>
         <el-main class="content-main">
           <el-scrollbar>
-            <div class="blocks-container">
+            <div class="blocks-container" ref="contentRef">
               <div 
                 v-for="block in documentStore.blocks" 
                 :key="block.id"
