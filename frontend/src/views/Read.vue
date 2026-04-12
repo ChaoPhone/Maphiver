@@ -14,7 +14,7 @@ function preprocessLatexFormula(formula: string): string {
   let processed = formula.trim()
   processed = processed.replace(/\r\n|\r|\n/g, ' ')
   processed = processed.replace(/\s+/g, ' ')
-  processed = processed.replace(/\\\\/g, '\\\\')
+  processed = processed.replace(/\\\\\\\\/g, '\\\\')
   return processed
 }
 
