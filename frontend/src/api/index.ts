@@ -88,7 +88,7 @@ export async function askQuestionStream(
   question: string,
   selectedText: string,
   blockId?: string,
-  onChunk: (chunk: any) => void
+  onChunk?: (chunk: any) => void
 ): Promise<void> {
   const response = await fetch('/api/qa/ask', {
     method: 'POST',

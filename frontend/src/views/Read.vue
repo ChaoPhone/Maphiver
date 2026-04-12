@@ -7,6 +7,63 @@ import katex from 'katex'
 import { ElMessage, ElScrollbar } from 'element-plus'
 import { ChatDotRound, Document, ArrowLeft } from '@element-plus/icons-vue'
 
+// 配置 marked：支持 GFM
+marked.setOptions({ breaks: true, gfm: true })
+
+function preprocessLatexFormula(formula: string): string {
+  let processed = formula.trim()
+  processed = processed.replace(/\r\n|\r|\n/g, ' ')
+  processed = processed.replace(/\s+/g, ' ')
+  processed = processed.replace(/\\\\/g, '\\\\')
+  return processed
+}
+
+function renderMarkdownWithLatex(markdown: string): string {
+  if (!markdown) return ''
+  
+  const latexBlocks: Array<{ placeholder: string; formula: string; display: boolean }> = []
+  
+  let result = markdown.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
+    const placeholder = `%%LATEX_BLOCK_${latexBlocks.length}%%`
+    const processedFormula = preprocessLatexFormula(formula)
+    latexBlocks.push({ placeholder, formula: processedFormula, display: true })
+    return placeholder
+  })
+  
+  result = result.replace(/\$([^$\n]+?)\$/g, (match, formula) => {
+    const placeholder = `%%LATEX_INLINE_${latexBlocks.length}%%`
+    const processedFormula = preprocessLatexFormula(formula)
+    latexBlocks.push({ placeholder, formula: processedFormula, display: false })
+    return placeholder
+  })
+  
+  result = marked.parse(result, { breaks: true, gfm: true }) as string
+  
+  latexBlocks.forEach(block => {
+    try {
+      const rendered = katex.renderToString(block.formula, {
+        displayMode: block.display,
+        throwOnError: false,
+        output: 'html',
+        trust: true,
+      })
+      result = result.replace(block.placeholder, rendered)
+    } catch (e) {
+      console.warn('KaTeX render error for:', block.formula, e)
+      result = result.replace(block.placeholder, block.display ? `$$${block.formula}$$` : `$${block.formula}$`)
+    }
+  })
+  
+  return result
+}
+
+// 计算属性
+const renderedMarkdown = computed(() => {
+  return renderMarkdownWithLatex(documentStore.rawMarkdown)
+})
+import { ElMessage, ElScrollbar } from 'element-plus'
+import { ChatDotRound, Document, ArrowLeft } from '@element-plus/icons-vue'
+
 const route = useRoute()
 const router = useRouter()
 const sessionStore = useSessionStore()
@@ -42,51 +99,9 @@ onMounted(async () => {
   loading.value = false
 })
 
-watch(() => documentStore.blocks, async () => {
-  await nextTick()
-  renderLatexInContent()
-}, { deep: true })
 
-function renderLatexInContent() {
-  if (contentRef.value) {
-    const katexElements = contentRef.value.querySelectorAll('.block-content')
-    katexElements.forEach(el => {
-      renderLatexInElement(el as HTMLElement)
-    })
-  }
-}
 
-function renderLatexInElement(el: HTMLElement) {
-  const text = el.innerHTML
-  const inlinePattern = /\$([^$]+)\$/g
-  const displayPattern = /\$\$([^$]+)\$\$/g
-  
-  let result = text
-  
-  result = result.replace(displayPattern, (match, formula) => {
-    return `<span class="katex-display" data-formula="${encodeURIComponent(formula)}"></span>`
-  })
-  
-  result = result.replace(inlinePattern, (match, formula) => {
-    return `<span class="katex-inline" data-formula="${encodeURIComponent(formula)}"></span>`
-  })
-  
-  el.innerHTML = result
-  
-  el.querySelectorAll('.katex-display').forEach(span => {
-    const formula = decodeURIComponent(span.getAttribute('data-formula') || '')
-    try {
-      katex.render(formula, span as HTMLElement, { displayMode: true, throwOnError: false })
-    } catch (e) {}
-  })
-  
-  el.querySelectorAll('.katex-inline').forEach(span => {
-    const formula = decodeURIComponent(span.getAttribute('data-formula') || '')
-    try {
-      katex.render(formula, span as HTMLElement, { displayMode: false, throwOnError: false })
-    } catch (e) {}
-  })
-}
+
 
 function handleTextSelection(blockId: string) {
   const selection = window.getSelection()
@@ -131,9 +146,7 @@ function goBack() {
   router.push('/')
 }
 
-function renderBlockContent(content: string): string {
-  return marked.parse(content) as string
-}
+
 </script>
 
 <template>
@@ -157,24 +170,11 @@ function renderBlockContent(content: string): string {
       <el-container>
         <el-main class="content-main">
           <el-scrollbar>
-            <div class="blocks-container" ref="contentRef">
-              <div 
-                v-for="block in documentStore.blocks" 
-                :key="block.id"
-                class="content-block"
-                :class="{ 'active-block': activeBlockId === block.id }"
-                @mouseup="handleTextSelection(block.id)"
-              >
-                <div class="block-header" v-if="block.chapter_path?.length">
-                  <el-tag size="small" type="info">
-                    {{ block.chapter_path.join(' > ') }}
-                  </el-tag>
-                  <el-tag size="small" v-if="block.page">P{{ block.page }}</el-tag>
-                </div>
-                <div class="block-content" v-html="renderBlockContent(block.content)"></div>
-              </div>
+            <div class="markdown-container" ref="contentRef" @mouseup="handleTextSelection('main')">
+              <!-- 显示 AI 格式化后的内容（rawMarkdown），而不是原始 blocks -->
+              <div class="markdown-content" v-html="renderedMarkdown"></div>
               
-              <div v-if="documentStore.blocks.length === 0 && !loading" class="empty-content">
+              <div v-if="!documentStore.rawMarkdown && !loading" class="empty-content">
                 <p>文档内容为空，请重新解析</p>
               </div>
             </div>
@@ -276,48 +276,74 @@ function renderBlockContent(content: string): string {
   padding: 0;
 }
 
-.blocks-container {
-  padding: 20px;
+.markdown-container {
+  padding: 30px;
   max-width: 900px;
+  min-height: 80vh;
+  overflow-x: auto;  /* 允许水平滚动 */
 }
 
-.content-block {
-  margin-bottom: 20px;
-  padding: 15px;
-  border-radius: 8px;
-  background: #fff;
-  border: 1px solid #e4e7ed;
-  transition: all 0.3s;
-}
-
-.content-block:hover {
-  border-color: #409eff;
-}
-
-.active-block {
-  border-color: #67c23a;
-  background: #f0f9eb;
-}
-
-.block-header {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.block-content {
+.markdown-content {
   line-height: 1.8;
   color: #303133;
+  background: white;
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  border: 1px solid #e2e8f0;
+  overflow-x: auto;  /* 允许水平滚动 */
 }
 
-.block-content :deep(h1),
-.block-content :deep(h2),
-.block-content :deep(h3) {
+/* 方案 A+B: 长公式自动缩放 + 水平滚动 */
+.markdown-content :deep(.katex-display) {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 10px 0;
+  font-size: 0.9em;  /* 略微缩小 */
+}
+
+/* 超长公式进一步缩放 */
+.markdown-content :deep(.katex-display .katex) {
+  white-space: nowrap;
+}
+
+/* 小屏幕时公式更小 */
+@media (max-width: 900px) {
+  .markdown-content :deep(.katex-display) {
+    font-size: 0.85em;
+  }
+}
+
+@media (max-width: 600px) {
+  .markdown-content :deep(.katex-display) {
+    font-size: 0.75em;
+  }
+}
+
+.markdown-content :deep(h1),
+.markdown-content :deep(h2),
+.markdown-content :deep(h3) {
+  margin: 15px 0;
+  color: #1e293b;
+}
+
+.markdown-content :deep(p) {
   margin: 10px 0;
 }
 
-.block-content :deep(p) {
-  margin: 8px 0;
+.markdown-content :deep(blockquote) {
+  border-left: 4px solid #67c23a;
+  padding: 10px 15px;
+  margin: 10px 0;
+  background: #f0f9eb;
+  color: #5a7a52;
+}
+
+.markdown-content :deep(code) {
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .empty-content {

@@ -659,4 +659,181 @@ npm run dev
 
 ---
 
-**下一步**: 确认方案后，开始执行 C1 阶段。
+## 十一、已知问题与重构方案 (C阶段验收后补充)
+
+### 11.1 LaTeX 公式渲染问题
+
+**问题描述**:
+- `pmatrix` 矩阵公式渲染报错：KaTeX 无法正确解析 `\begin{pmatrix}...\end{pmatrix}`
+- 原因：AI 生成的 LaTeX 公式中换行符 `\\` 被 Markdown 解析器处理，导致公式结构破坏
+- 现象：`$$\begin{pmatrix} a & b \\ c & d \end{pmatrix}$$` 渲染失败
+
+**当前临时方案**:
+- 前端 `Read.vue` 使用占位符保护机制：先保护 LaTeX → 处理 Markdown → 渲染 LaTeX
+- 后端 `ai_service.py` prompt 要求矩阵使用行内格式 `$\begin{pmatrix}...\end{pmatrix}$`
+
+**推荐重构方案**:
+```typescript
+// 方案A：预处理 LaTeX 换行符
+function preprocessLatex(formula: string): string {
+  // 将 LaTeX 换行符 \\ 替换为特殊标记，渲染时还原
+  return formula.replace(/\\\\/g, '%%LATEX_NEWLINE%%')
+}
+
+// 方案B：使用 markdown-it + 自定义 LaTeX 插件
+import MarkdownIt from 'markdown-it'
+import { markdownItKatex } from '@mdit/plugin-katex'
+
+const md = new MarkdownIt()
+md.use(markdownItKatex, { throwOnError: false })
+```
+
+**优先级**: 高
+
+---
+
+### 11.2 前端组件缺失
+
+**问题描述**:
+对照计划文档，以下组件未实现：
+- `ReadingPanel.vue` - 文档阅读区（当前直接在 Read.vue 中渲染）
+- `BlockItem.vue` - 单个 block 渲染（未实现）
+- `BlockBreadcrumb.vue` - 面包屑按钮（未实现）
+- `QAPanel.vue` - 批注面板（当前直接在 Read.vue 中）
+- `Sidebar.vue` - 左侧栏（未实现）
+- `SessionCard.vue` - 会话卡片（未实现）
+- `HistoryList.vue` - 历史列表（未实现）
+- `ParseProgress.vue` - 解析进度组件（未实现）
+
+**当前状态**:
+- 功能已实现，但组件未拆分，代码集中在 `Read.vue` 和 `Home.vue`
+- 不利于维护和复用
+
+**推荐重构方案**:
+1. 创建 `components/QAPanel.vue` - 抽离问答面板逻辑
+2. 创建 `components/Sidebar.vue` - 抽离左侧栏逻辑
+3. 创建 `components/ParseProgress.vue` - 抽离解析进度显示
+4. `Read.vue` 改为组合这些组件
+
+**优先级**: 中
+
+---
+
+### 11.3 API 调用方式不一致
+
+**问题描述**:
+- `parseDocument` 使用 `EventSource` (SSE)
+- `askQuestionStream` 使用 `fetch` + `ReadableStream`
+- 两种流式处理方式不一致，增加维护成本
+
+**推荐重构方案**:
+```typescript
+// 统一使用 fetch + ReadableStream
+export async function streamRequest(
+  url: string,
+  options: RequestInit,
+  onChunk: (data: any) => void
+): Promise<void> {
+  const response = await fetch(url, options)
+  const reader = response.body?.getReader()
+  const decoder = new TextDecoder()
+  
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    
+    const text = decoder.decode(value)
+    const lines = text.split('\n')
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        onChunk(JSON.parse(line.slice(6)))
+      }
+    }
+  }
+}
+```
+
+**优先级**: 低
+
+---
+
+### 11.4 状态管理优化
+
+**问题描述**:
+- 当前 `stores/index.ts` 将 document 和 session store 合在一个文件
+- 缺少独立的 `qa.ts` 和 `ui.ts` store
+- `qaMessages` 状态管理在 session store 中，不符合计划设计
+
+**推荐重构方案**:
+1. 拆分 `stores/document.ts`
+2. 拆分 `stores/session.ts`
+3. 创建 `stores/qa.ts` - 独立管理问答状态
+4. 创建 `stores/ui.ts` - 管理 UI 状态（pageStage, activeBlockId, showQAPanel）
+
+**优先级**: 中
+
+---
+
+### 11.5 后端 AI Prompt 改进
+
+**问题描述**:
+- 当前 prompt 对题目识别不够稳定
+- LaTeX 公式格式规范需要更明确的示例
+- 矩阵公式换行符处理问题
+
+**推荐改进**:
+```python
+FORMAT_PROMPT = """
+...
+**【矩阵公式特殊处理】**：
+- 矩阵元素之间用 `&` 分隔
+- 矩阵行之间用 `\\\\` (双反斜杠)，但需确保 Markdown 不破坏
+- 推荐格式：`$\begin{pmatrix} a & b \\\\ c & d \end{pmatrix}$`
+- 或使用简化格式：`$\left[\begin{array}{cc} a & b \\ c & d \end{array}\right]$`
+"""
+```
+
+**优先级**: 高
+
+---
+
+### 11.6 缺失功能
+
+**问题描述**:
+以下计划功能未实现：
+- 知识卡片摘录功能 (A4)
+- 学习足迹可视化 (A5)
+- 归档功能 UI（后端 API 已实现，前端未接入）
+- 快捷问题模板 API (`/api/qa/quick-questions`) - 后端已实现但前端未调用
+
+**推荐方案**:
+- C11: 实现归档功能 UI
+- C12: 接入快捷问题模板 API
+- 后续 A4-A5: 知识卡片和学习足迹
+
+**优先级**: 中
+
+---
+
+## 十二、C阶段验收清单
+
+| 阶段 | 状态 | 备注 |
+|------|------|------|
+| C1: 后端骨架 | ✅ 完成 | FastAPI + CORS + Health API |
+| C2: 文档服务 | ✅ 完成 | 上传/解析 SSE 流式 |
+| C3: 会话服务 | ✅ 完成 | CRUD + archive |
+| C4: 问答服务 | ✅ 完成 | SSE 流式回答 |
+| C5: 前端骨架 | ✅ 完成 | Vue 3 + Pinia + Router |
+| C6: 文档上传页面 | ✅ 完成 | Upload.vue |
+| C7: 阅读页面核心 | ⚠️ 部分完成 | LaTeX 渲染有问题 |
+| C8: 侧边栏和历史 | ⚠️ 部分完成 | 组件未拆分 |
+| C9: 整体集成测试 | ⚠️ 需验证 | LaTeX 问题影响体验 |
+| C10: Streamlit退役 | ⏳ 待定 | 功能完整性确认后 |
+
+---
+
+**下一步**: 
+1. 修复 LaTeX 矩阵公式渲染问题
+2. 拆分前端组件
+3. 完成集成测试
+4. 确认功能完整性后退役 Streamlit 版本
