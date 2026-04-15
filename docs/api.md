@@ -107,7 +107,7 @@
 
 ---
 
-### POST /documents/{document_id}/parse (SSE)
+### GET /documents/{document_id}/parse (SSE)
 
 流式解析文档，返回 SSE 事件流。
 
@@ -343,7 +343,38 @@
 
 ---
 
-## 5. 学习足迹 (缺失 - 需补充)
+## 5. 学习足迹
+
+### POST /footprints/
+
+创建学习足迹记录。
+
+**请求**:
+```json
+{
+  "session_id": "session-uuid",
+  "action_type": "ask|select|highlight",
+  "context": { "额外上下文信息" },
+  "message_id": "message-uuid (可选)"
+}
+```
+
+**响应**:
+```json
+{
+  "id": "footprint-uuid",
+  "session_id": "session-uuid",
+  "message_id": "message-uuid",
+  "action_type": "ask",
+  "context": {},
+  "created_at": "2026-04-12T10:00:00"
+}
+```
+
+**错误**:
+- 404: 会话不存在
+
+---
 
 ### GET /footprints/{session_id}
 
@@ -357,17 +388,18 @@
       "id": "footprint-uuid",
       "session_id": "session-uuid",
       "message_id": "message-uuid",
-      "action_type": "ask|select|highlight",
-      "context": { "额外上下文信息" },
+      "action_type": "ask",
+      "context": {},
       "created_at": "2026-04-12T10:00:00"
     }
-  ]
+  ],
+  "total": 5
 }
 ```
 
 ---
 
-## 6. 知识卡片 (缺失 - 需补充)
+## 6. 知识卡片
 
 ### POST /cards/
 
@@ -378,8 +410,8 @@
 {
   "session_id": "session-uuid",
   "source_text": "摘录的原文",
-  "annotation": "用户批注",
-  "block_id": "block-uuid"
+  "annotation": "用户批注 (可选)",
+  "block_id": "block-uuid (可选)"
 }
 ```
 
@@ -394,6 +426,9 @@
   "created_at": "2026-04-12T10:00:00"
 }
 ```
+
+**错误**:
+- 404: 会话不存在
 
 ---
 
@@ -416,9 +451,31 @@
       "block_id": "block-uuid",
       "created_at": "2026-04-12T10:00:00"
     }
-  ]
+  ],
+  "total": 5
 }
 ```
+
+---
+
+### GET /cards/{card_id}
+
+获取单个知识卡片详情。
+
+**响应**:
+```json
+{
+  "id": "card-uuid",
+  "session_id": "session-uuid",
+  "source_text": "摘录的原文",
+  "annotation": "用户批注",
+  "block_id": "block-uuid",
+  "created_at": "2026-04-12T10:00:00"
+}
+```
+
+**错误**:
+- 404: 知识卡片不存在
 
 ---
 
@@ -433,11 +490,37 @@
 }
 ```
 
+**响应**:
+```json
+{
+  "id": "card-uuid",
+  "session_id": "session-uuid",
+  "source_text": "摘录的原文",
+  "annotation": "新的批注内容",
+  "block_id": "block-uuid",
+  "created_at": "2026-04-12T10:00:00"
+}
+```
+
+**错误**:
+- 404: 知识卡片不存在
+
 ---
 
 ### DELETE /cards/{card_id}
 
 删除知识卡片。
+
+**响应**:
+```json
+{
+  "status": "deleted",
+  "card_id": "card-uuid"
+}
+```
+
+**错误**:
+- 404: 知识卡片不存在
 
 ---
 
@@ -456,8 +539,8 @@
 | QA问答(SSE) | ✅ | ✅ | ✅ | 完成 |
 | QA历史 | ✅ | ✅ | ✅ | 完成 |
 | 快捷问题 | ✅ | ✅ | ✅ | 完成 |
-| 学习足迹 | ✅ | ❌ 缺失 | ❌ | **需补充** |
-| 知识卡片 | ✅ | ❌ 缺失 | ❌ | **需补充** |
+| 学习足迹 | ✅ | ✅ | ✅ | 完成 |
+| 知识卡片 | ✅ | ✅ | ✅ | 完成 |
 
 ---
 
@@ -471,7 +554,7 @@
 | `getDocuments` | GET /documents/ | ✅ |
 | `getDocument` | GET /documents/{id} | ✅ |
 | `deleteDocument` | DELETE /documents/{id} | ✅ |
-| `parseDocument` | POST /documents/{id}/parse (SSE) | ✅ |
+| `parseDocument` | GET /documents/{id}/parse (SSE) | ✅ |
 | `createSession` | POST /sessions/ | ✅ |
 | `getSession` | GET /sessions/{id} | ✅ |
 | `archiveSession` | PUT /sessions/{id}/archive | ✅ |
@@ -480,13 +563,24 @@
 | `getQAHistory` | GET /qa/history/{id} | ✅ |
 | `getQuickQuestions` | GET /qa/quick-questions | ✅ |
 | `healthCheck` | GET /health | ✅ |
+| `getFootprints` | GET /footprints/{session_id} | ✅ |
+| `createFootprint` | POST /footprints/ | ✅ |
+| `getCards` | GET /cards/ | ✅ |
+| `getCard` | GET /cards/{id} | ✅ |
+| `createCard` | POST /cards/ | ✅ |
+| `updateCard` | PUT /cards/{id} | ✅ |
+| `deleteCard` | DELETE /cards/{id} | ✅ |
 
-### 缺失的API调用
+---
 
-| 函数 | API端点 | 状态 |
-|-----|--------|------|
-| `getFootprints` | GET /footprints/{session_id} | ❌ 需补充 |
-| `createCard` | POST /cards/ | ❌ 需补充 |
-| `getCards` | GET /cards/ | ❌ 需补充 |
-| `updateCard` | PUT /cards/{id} | ❌ 需补充 |
-| `deleteCard` | DELETE /cards/{id} | ❌ 需补充 |
+## 后端路由注册
+
+所有API路由已在 `backend/main.py` 中注册：
+
+```python
+app.include_router(documents.router, prefix="/documents")
+app.include_router(sessions.router, prefix="/sessions")
+app.include_router(qa.router, prefix="/qa")
+app.include_router(cards.router, prefix="/cards")
+app.include_router(footprints.router, prefix="/footprints")
+```

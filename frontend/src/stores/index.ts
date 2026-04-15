@@ -21,11 +21,14 @@ export const useDocumentStore = defineStore('document', () => {
     return result
   }
   
-  async function parseDocument(id: string) {
+  async function parseDocument(id: string, onProgress?: (data: any) => void) {
     parseProgress.value = 0
     parseStage.value = 'extracting'
     
     const result = await api.parseDocument(id, (data) => {
+      if (onProgress) {
+        onProgress(data)
+      }
       if (data.progress) {
         parseProgress.value = data.progress
       }
@@ -120,6 +123,20 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
   
+  async function askQuestionStream(question: string, selectedText: string, onChunk: (chunk: any) => void, blockId?: string) {
+    if (!currentSession.value) return
+    
+    await api.askQuestionStream(
+      currentSession.value.id,
+      question,
+      selectedText,
+      blockId,
+      onChunk
+    )
+    
+    qaMessages.value = await api.getQAHistory(currentSession.value.id)
+  }
+  
   return {
     sessions,
     currentSession,
@@ -129,5 +146,6 @@ export const useSessionStore = defineStore('session', () => {
     loadSession,
     archiveSession,
     askQuestion,
+    askQuestionStream,
   }
 })

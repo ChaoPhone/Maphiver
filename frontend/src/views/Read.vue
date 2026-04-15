@@ -5,11 +5,11 @@ import { useSessionStore, useDocumentStore } from '@/stores'
 import { marked } from 'marked'
 import katex from 'katex'
 import { ElMessage, ElScrollbar, ElUpload, ElProgress, ElIcon } from 'element-plus'
-import { ChatDotRound, Document, UploadFilled, Notebook, EditPen, QuestionFilled, Close } from '@element-plus/icons-vue'
+import { ChatDotRound, Document, UploadFilled, Notebook, EditPen, QuestionFilled, Close, ArrowLeft } from '@element-plus/icons-vue'
 import type { KnowledgeCard } from '@/types'
 import * as api from '@/api'
 import FootprintPanel from '@/components/FootprintPanel.vue'
-import { extractLatexBlocks, preprocessLatexFormula } from '@/utils/latex'
+import { extractLatexBlocks } from '@/utils/latex'
 
 marked.setOptions({ breaks: true, gfm: true })
 
@@ -48,6 +48,10 @@ const uploading = ref(false)
 const parsing = ref(false)
 const parseProgress = ref(0)
 const parseStage = ref('')
+const streamingContent = ref('')
+const displayContent = ref('')
+let streamBuffer = ''
+let displayTimer: number | null = null
 const fileList = ref<any[]>([])
 
 const selectedText = ref('')
@@ -55,18 +59,20 @@ const selectedRange = ref<{ start: number; end: number; rect: DOMRect | null }>(
 const question = ref('')
 const answering = ref(false)
 const streamingAnswer = ref('')
-const showSelectionPopup = ref(false)
-const showQAPanel = ref(false)
+const showCurrentPanel = ref(false)
 const contentRef = ref<HTMLElement | null>(null)
+const scrollContainerRef = ref<HTMLElement | null>(null)
 const cards = ref<KnowledgeCard[]>([])
 const cardsLoading = ref(false)
-const sidebarCollapsed = ref(false)
+const sidebarHovered = ref(false)
 const showCardInput = ref(false)
 const cardAnnotation = ref('')
 const cardCreating = ref(false)
 const cardSuccess = ref(false)
 const currentChapter = ref('')
 const showBreadcrumb = ref(false)
+const expandedHistoryId = ref<string | null>(null)
+const panelPosition = ref({ top: 0, right: 0 })
 
 const sessionId = computed(() => route.params.sessionId as string)
 const hasDocument = computed(() => !!sessionStore.currentSession?.document_id)
@@ -80,7 +86,7 @@ const quickQuestions = [
   { type: 'explain', label: '解释', template: '请解释这段内容' },
   { type: 'summary', label: '总结', template: '请总结这段内容的核心要点' },
   { type: 'example', label: '举例', template: '请举例说明这个概念' },
-  { type: 'compare', label: '对比', template: '请对比分析这两个概念' },
+  { type: 'solve', label: '解题', template: '请给出这道题的详细解答步骤' },
 ]
 
 onMounted(async () => {
@@ -92,6 +98,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   removeScrollObserver()
+  if (displayTimer) {
+    clearInterval(displayTimer)
+    displayTimer = null
+  }
 })
 
 let scrollObserver: IntersectionObserver | null = null
@@ -170,6 +180,24 @@ function handleFileChange(uploadFile: any) {
   return false
 }
 
+function startCharByCharDisplay() {
+  if (displayTimer) {
+    clearInterval(displayTimer)
+  }
+  displayTimer = window.setInterval(() => {
+    if (streamBuffer.length > 0) {
+      const char = streamBuffer.charAt(0)
+      streamBuffer = streamBuffer.slice(1)
+      displayContent.value += char
+    } else if (!parsing.value) {
+      if (displayTimer) {
+        clearInterval(displayTimer)
+        displayTimer = null
+      }
+    }
+  }, 30)
+}
+
 async function handleUpload() {
   if (fileList.value.length === 0 || !fileList.value[0].raw) {
     ElMessage.warning('请选择文件')
@@ -179,6 +207,9 @@ async function handleUpload() {
   uploading.value = true
   parseProgress.value = 0
   parseStage.value = ''
+  streamingContent.value = ''
+  displayContent.value = ''
+  streamBuffer = ''
   
   try {
     const result = await documentStore.uploadFile(fileList.value[0].raw)
@@ -189,19 +220,25 @@ async function handleUpload() {
     parseStage.value = '提取文本...'
     parseProgress.value = 10
     
+    const session = await sessionStore.createSession(result.id)
+    router.push(`/read/${session.id}`)
+    
     await documentStore.parseDocument(result.id, (data: any) => {
       if (data.type === 'progress') {
         parseStage.value = getStageLabel(data.stage)
         parseProgress.value = data.progress || parseProgress.value
+      } else if (data.type === 'text' && data.content) {
+        streamBuffer += data.content
+        if (!displayTimer) {
+          startCharByCharDisplay()
+        }
+        parseStage.value = 'AI格式化中...'
       }
     })
     
     parseProgress.value = 100
     parseStage.value = '解析完成'
     ElMessage.success('解析完成')
-    
-    const session = await sessionStore.createSession(result.id)
-    router.push(`/read/${session.id}`)
     await loadCards()
   } catch (error: any) {
     ElMessage.error(error.message || '操作失败')
@@ -236,30 +273,24 @@ function handleTextSelection(event: MouseEvent) {
         rect: rect
       }
       
-      showSelectionPopup.value = true
-      showQAPanel.value = true
+      const scrollRect = scrollContainerRef.value?.getBoundingClientRect()
+      if (scrollRect && rect) {
+        panelPosition.value = {
+          top: rect.top - scrollRect.top + rect.height / 2,
+          right: 0
+        }
+      }
       
-      nextTick(() => {
-        positionSelectionPopup(rect)
-      })
+      showCurrentPanel.value = true
+      expandedHistoryId.value = null
     }
   }
 }
 
-function positionSelectionPopup(rect: DOMRect) {
-  const popup = document.querySelector('.selection-popup') as HTMLElement
-  if (popup && rect) {
-    const containerRect = contentRef.value?.getBoundingClientRect()
-    if (containerRect) {
-      popup.style.top = `${rect.top - containerRect.top - 50}px`
-      popup.style.left = `${rect.right - containerRect.left + 10}px`
-    }
-  }
-}
-
-function hideSelectionPopup() {
-  showSelectionPopup.value = false
+function hideCurrentPanel() {
+  showCurrentPanel.value = false
   selectedText.value = ''
+  streamingAnswer.value = ''
   window.getSelection()?.removeAllRanges()
 }
 
@@ -267,7 +298,6 @@ function showCardAnnotationInput() {
   showCardInput.value = true
   cardAnnotation.value = ''
   cardSuccess.value = false
-  showSelectionPopup.value = false
 }
 
 function cancelCardCreation() {
@@ -288,7 +318,6 @@ async function createCardWithAnnotation() {
       showCardInput.value = false
       cardSuccess.value = false
       cardAnnotation.value = ''
-      selectedText.value = ''
     }, 1500)
   } catch (error: any) {
     ElMessage.error(error.message || '创建卡片失败')
@@ -303,7 +332,7 @@ async function createCardFromSelection() {
     const card = await api.createCard(sessionId.value, selectedText.value)
     ElMessage.success('已摘录为知识卡片')
     await loadCards()
-    hideSelectionPopup()
+    hideCurrentPanel()
   } catch (error: any) {
     ElMessage.error(error.message || '创建卡片失败')
   }
@@ -321,8 +350,8 @@ async function askQuestion(qType?: string) {
   
   answering.value = true
   streamingAnswer.value = ''
-  showQAPanel.value = true
-  showSelectionPopup.value = false
+  showCurrentPanel.value = true
+  expandedHistoryId.value = null
   
   try {
     await sessionStore.askQuestionStream(actualQuestion, selectedText.value, (chunk: any) => {
@@ -338,10 +367,8 @@ async function askQuestion(qType?: string) {
   answering.value = false
 }
 
-function closeAIReply() {
-  showQAPanel.value = false
-  streamingAnswer.value = ''
-  selectedText.value = ''
+function toggleHistoryItem(id: string) {
+  expandedHistoryId.value = expandedHistoryId.value === id ? null : id
 }
 
 async function deleteCard(cardId: string) {
@@ -357,23 +384,17 @@ async function deleteCard(cardId: string) {
 function goBack() {
   router.push('/history')
 }
-
-function toggleSidebar() {
-  sidebarCollapsed.value = !sidebarCollapsed.value
-}
 </script>
 
 <template>
   <div class="maphiver-app" v-loading="loading" element-loading-text="正在加载...">
-    <aside class="sidebar" :class="{ 'is-collapsed': sidebarCollapsed }">
+    <div class="sidebar-trigger" @mouseenter="sidebarHovered = true" @mouseleave="sidebarHovered = false">
+      <div class="trigger-bar"></div>
+    </div>
+    
+    <aside class="sidebar-hover" :class="{ 'is-visible': sidebarHovered }" @mouseenter="sidebarHovered = true" @mouseleave="sidebarHovered = false">
       <div class="sidebar-header">
-        <el-button :icon="Document" @click="goBack" text size="small">返回</el-button>
-        <el-button 
-          :icon="sidebarCollapsed ? 'Expand' : 'Fold'" 
-          @click="toggleSidebar" 
-          text 
-          size="small"
-        />
+        <el-button :icon="ArrowLeft" @click="goBack" text size="small">返回</el-button>
       </div>
       
       <div class="sidebar-content">
@@ -406,8 +427,28 @@ function toggleSidebar() {
       </div>
     </aside>
 
-    <main class="reading-zone">
-      <div v-if="!hasDocument" class="upload-area">
+    <div class="scroll-container" ref="scrollContainerRef">
+      <div v-if="parsing" class="parsing-view">
+        <div class="parse-header">
+          <div class="progress-bar">
+            <el-progress :percentage="parseProgress" :stroke-width="6" :show-text="false" />
+            <span class="progress-text">{{ parseProgress }}%</span>
+          </div>
+          <div class="parse-stage">{{ parseStage }}</div>
+        </div>
+        
+        <div class="parsing-content">
+          <div class="stream-output">
+            <div v-if="displayContent" class="stream-text" v-html="renderMarkdownWithLatex(displayContent)"></div>
+            <div v-else class="stream-waiting">
+              <span class="waiting-text">等待AI格式化...</span>
+            </div>
+            <span v-if="parseStage.includes('格式化') && streamBuffer.length > 0" class="cursor-blink">█</span>
+          </div>
+        </div>
+      </div>
+      
+      <div v-else-if="!hasDocument" class="upload-area">
         <div class="upload-content">
           <el-upload
             drag
@@ -441,117 +482,123 @@ function toggleSidebar() {
         </div>
       </div>
       
-      <div v-else class="reading-area" ref="contentRef">
-        <div class="doc-header">
-          <span class="doc-title">{{ sessionStore.currentSession?.document?.filename || '流式知识河' }}</span>
-        </div>
-        
-        <div class="breadcrumb-bar" :class="{ 'is-visible': showBreadcrumb && currentChapter }">
-          <span class="breadcrumb-text">{{ currentChapter }}</span>
-        </div>
-        
-        <el-scrollbar>
+      <div v-else class="content-wrapper">
+        <div class="main-column" ref="contentRef">
+          <div class="doc-header">
+            <span class="doc-title">{{ sessionStore.currentSession?.document?.filename || '流式知识河' }}</span>
+          </div>
+          
+          <div class="breadcrumb-bar" :class="{ 'is-visible': showBreadcrumb && currentChapter }">
+            <span class="breadcrumb-text">{{ currentChapter }}</span>
+          </div>
+          
           <div class="markdown-content" @mouseup="handleTextSelection">
             <div v-html="renderedMarkdown"></div>
             <div v-if="!documentStore.rawMarkdown && !loading" class="empty-content">
               文档内容为空
             </div>
           </div>
-        </el-scrollbar>
-        
-        <div v-if="showSelectionPopup" class="selection-popup">
-          <div class="popup-context">
-            <span class="context-label">已选中 {{ selectedText.length }} 字</span>
-          </div>
-          <div class="popup-actions">
-            <el-button size="small" :icon="EditPen" @click="showCardAnnotationInput">摘录卡片</el-button>
-            <el-button size="small" type="primary" :icon="QuestionFilled" @click="askQuestion()">向AI提问</el-button>
-          </div>
-          <div class="quick-questions">
-            <el-button 
-              v-for="q in quickQuestions" 
-              :key="q.type"
-              size="small"
-              round
-              @click="askQuestion(q.type)"
-            >
-              {{ q.label }}
-            </el-button>
-          </div>
         </div>
         
-        <div v-if="showCardInput" class="card-input-inline">
-          <div class="card-input-context">
-            <span class="context-label">摘录内容：</span>
-            <span class="context-preview">{{ selectedText.slice(0, 50) }}{{ selectedText.length > 50 ? '...' : '' }}</span>
-          </div>
-          <div class="card-input-field">
-            <input 
-              v-model="cardAnnotation"
-              type="text"
-              placeholder="添加批注..."
-              class="annotation-input"
-              @keyup.enter="createCardWithAnnotation"
-              @keyup.escape="cancelCardCreation"
-              :disabled="cardCreating"
-            />
-          </div>
-          <div v-if="cardSuccess" class="card-success">
-            <span class="success-icon">✅</span>
-            <span class="success-text">已汇入知识河</span>
-          </div>
-          <div v-else class="card-input-actions">
-            <el-button size="small" text @click="cancelCardCreation">取消</el-button>
-            <el-button size="small" type="primary" :loading="cardCreating" @click="createCardWithAnnotation">保存</el-button>
-          </div>
-        </div>
-      </div>
-    </main>
-
-    <aside v-show="showQAPanel" class="qa-panel">
-      <div class="qa-header">
-        <span class="qa-title">AI交互</span>
-        <el-button size="small" text :icon="Close" @click="closeAIReply" />
-      </div>
-      
-      <div v-if="selectedText && !streamingAnswer" class="qa-context">
-        <div class="context-quote">{{ selectedText.slice(0, 100) }}{{ selectedText.length > 100 ? '...' : '' }}</div>
-      </div>
-      
-      <div class="qa-stream" v-if="streamingAnswer">
-        <div class="stream-content" v-html="renderMarkdownWithLatex(streamingAnswer)"></div>
-        <div v-if="answering" class="stream-loading">
-          <el-icon class="is-loading"><ChatDotRound /></el-icon>
-          <span>回复中...</span>
-        </div>
-        <div v-if="!answering && streamingAnswer" class="stream-actions">
-          <el-button size="small" text :icon="EditPen" @click="createCardFromSelection">
-            摘录为知识卡
-          </el-button>
-        </div>
-      </div>
-      
-      <div class="qa-history" v-if="qaMessages.length > 0">
-        <div class="history-header">
-          <span>历史问答</span>
-          <span class="history-count">{{ qaMessages.length }}</span>
-        </div>
-        <el-scrollbar height="calc(100vh - 280px)">
-          <div v-for="msg in qaMessages" :key="msg.id" class="qa-item">
-            <div class="qa-question">
-              <el-icon><QuestionFilled /></el-icon>
-              <span>{{ msg.question }}</span>
+        <aside class="qa-column">
+          <div class="qa-panel">
+            <div v-if="showCurrentPanel" class="current-panel" :style="{ top: panelPosition.top + 'px' }">
+              <div class="current-header">
+                <span class="current-label">已选中 {{ selectedText.length }} 字</span>
+                <el-button size="small" text :icon="Close" @click="hideCurrentPanel" />
+              </div>
+              
+              <div class="current-context">
+                <span class="context-quote">{{ selectedText.slice(0, 100) }}{{ selectedText.length > 100 ? '...' : '' }}</span>
+              </div>
+              
+              <div class="quick-actions">
+                <el-button 
+                  v-for="q in quickQuestions" 
+                  :key="q.type"
+                  size="small"
+                  round
+                  @click="askQuestion(q.type)"
+                  :disabled="answering"
+                >
+                  {{ q.label }}
+                </el-button>
+              </div>
+              
+              <div v-if="showCardInput" class="card-input-area">
+                <div class="card-input-field">
+                  <input 
+                    v-model="cardAnnotation"
+                    type="text"
+                    placeholder="添加批注..."
+                    class="annotation-input"
+                    @keyup.enter="createCardWithAnnotation"
+                    @keyup.escape="cancelCardCreation"
+                    :disabled="cardCreating"
+                  />
+                </div>
+                <div v-if="cardSuccess" class="card-success">
+                  <span class="success-icon">✅</span>
+                  <span class="success-text">已汇入知识河</span>
+                </div>
+                <div v-else class="card-input-actions">
+                  <el-button size="small" text @click="cancelCardCreation">取消</el-button>
+                  <el-button size="small" type="primary" :loading="cardCreating" @click="createCardWithAnnotation">保存</el-button>
+                </div>
+              </div>
+              
+              <div v-if="streamingAnswer" class="stream-area">
+                <div class="stream-label">AI回复:</div>
+                <div class="stream-content" v-html="renderMarkdownWithLatex(streamingAnswer)"></div>
+                <div v-if="answering" class="stream-loading">
+                  <el-icon class="is-loading"><ChatDotRound /></el-icon>
+                  <span>回复中...</span>
+                </div>
+                <div v-if="!answering && streamingAnswer" class="stream-actions">
+                  <el-button size="small" text :icon="EditPen" @click="createCardFromSelection">
+                    摘录为卡片
+                  </el-button>
+                </div>
+              </div>
+              
+              <div v-else class="panel-actions">
+                <el-button size="small" :icon="EditPen" @click="showCardAnnotationInput">摘录卡片</el-button>
+              </div>
             </div>
-            <div class="qa-answer" v-html="renderMarkdownWithLatex(msg.answer)"></div>
+            
+            <div class="history-section">
+              <div class="history-header">
+                <span>历史问答</span>
+                <span class="history-count">{{ qaMessages.length }}</span>
+              </div>
+              
+              <div v-if="qaMessages.length === 0" class="history-empty">
+                <p>选中文字后点击快捷按钮</p>
+                <p class="hint">AI回复将在此处显示</p>
+              </div>
+              
+              <div v-else class="history-list">
+                <div 
+                  v-for="msg in qaMessages" 
+                  :key="msg.id" 
+                  class="history-item"
+                  :class="{ 'is-expanded': expandedHistoryId === msg.id }"
+                >
+                  <div class="history-question" @click="toggleHistoryItem(msg.id)">
+                    <el-icon><QuestionFilled /></el-icon>
+                    <span class="question-text">{{ msg.question }}</span>
+                    <span class="expand-icon">{{ expandedHistoryId === msg.id ? '▼' : '▶' }}</span>
+                  </div>
+                  <div v-if="expandedHistoryId === msg.id" class="history-answer">
+                    <div v-html="renderMarkdownWithLatex(msg.answer)"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        </el-scrollbar>
+        </aside>
       </div>
-      
-      <div v-else-if="!streamingAnswer" class="qa-empty">
-        <p>选中文字后点击"向AI提问"</p>
-        <p class="hint">AI回复将在此处显示</p>
-      </div>
-    </aside>
+    </div>
   </div>
 </template>
 
@@ -564,18 +611,44 @@ function toggleSidebar() {
   background-color: var(--bg-main);
 }
 
-.sidebar {
-  width: var(--sidebar-width);
-  background-color: var(--bg-sidebar);
-  border-right: 1px solid var(--border-color);
-  display: flex;
-  flex-direction: column;
-  transition: width var(--transition-normal);
+.sidebar-trigger {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 8px;
+  height: 100vh;
+  z-index: 100;
+  cursor: pointer;
 }
 
-.sidebar.is-collapsed {
-  width: 0;
-  border: none;
+.trigger-bar {
+  width: 4px;
+  height: 100%;
+  background: var(--border-color);
+  transition: background var(--transition-fast);
+}
+
+.sidebar-trigger:hover .trigger-bar {
+  background: var(--text-accent);
+}
+
+.sidebar-hover {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 260px;
+  height: 100vh;
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
+  z-index: 99;
+  transform: translateX(-260px);
+  transition: transform var(--transition-normal);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-hover.is-visible {
+  transform: translateX(0);
 }
 
 .sidebar-header {
@@ -660,22 +733,18 @@ function toggleSidebar() {
   min-height: 180px;
 }
 
-.reading-zone {
+.scroll-container {
   flex: 1;
-  min-width: var(--reading-min-width);
   overflow-y: auto;
-  padding: 0 var(--reading-padding);
   scroll-behavior: smooth;
-  display: flex;
-  flex-direction: column;
 }
 
 .upload-area {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 100%;
-  flex: 1;
+  min-height: 100vh;
+  padding: 40px;
 }
 
 .upload-content {
@@ -714,11 +783,15 @@ function toggleSidebar() {
   margin-top: 16px;
 }
 
-.reading-area {
-  height: 100%;
-  position: relative;
+.content-wrapper {
   display: flex;
-  flex-direction: column;
+  min-height: 100vh;
+}
+
+.main-column {
+  flex: 1;
+  min-width: 600px;
+  padding: 0 10vw;
 }
 
 .doc-header {
@@ -734,16 +807,14 @@ function toggleSidebar() {
 }
 
 .breadcrumb-bar {
-  position: fixed;
+  position: sticky;
   top: 0;
-  left: var(--sidebar-width);
-  right: 0;
-  padding: 8px 20px;
-  background: linear-gradient(to bottom, var(--bg-main), transparent);
+  background: var(--bg-main);
+  padding: 8px 0;
+  margin-bottom: 16px;
   opacity: 0;
-  transition: opacity var(--transition-normal);
-  z-index: 50;
-  pointer-events: none;
+  transition: opacity var(--transition-fast);
+  z-index: 10;
 }
 
 .breadcrumb-bar.is-visible {
@@ -751,126 +822,172 @@ function toggleSidebar() {
 }
 
 .breadcrumb-text {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   color: var(--text-secondary);
 }
 
 .markdown-content {
-  padding-bottom: 60px;
-  line-height: var(--line-height);
-  min-height: 100%;
+  padding-bottom: 100px;
 }
 
 .markdown-content :deep(h1) {
-  font-size: 1.75em;
-  margin-bottom: 1em;
+  font-size: 1.8em;
+  margin: 1em 0 0.5em;
   color: var(--text-primary);
 }
 
 .markdown-content :deep(h2) {
-  font-size: 1.5em;
-  margin-bottom: 0.75em;
+  font-size: 1.4em;
+  margin: 1em 0 0.5em;
   color: var(--text-primary);
 }
 
 .markdown-content :deep(h3) {
-  font-size: 1.25em;
-  margin-bottom: 0.5em;
+  font-size: 1.2em;
+  margin: 1em 0 0.5em;
   color: var(--text-primary);
 }
 
 .markdown-content :deep(p) {
-  margin-bottom: var(--paragraph-spacing);
+  margin: 0.8em 0;
+  line-height: 1.8;
   color: var(--text-primary);
 }
 
-.markdown-content :deep(.katex-display) {
-  max-width: 100%;
+.markdown-content :deep(code) {
+  background: var(--bg-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.markdown-content :deep(pre) {
+  background: var(--bg-hover);
+  padding: 16px;
+  border-radius: 8px;
   overflow-x: auto;
-  padding: 12px 0;
-  margin: 1em 0;
+}
+
+.markdown-content :deep(pre code) {
+  background: none;
+  padding: 0;
 }
 
 .empty-content {
   text-align: center;
-  padding: 60px;
   color: var(--text-secondary);
+  padding: 100px 0;
 }
 
-.selection-popup {
-  position: absolute;
-  background: var(--bg-main);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 12px;
-  box-shadow: var(--shadow-md);
-  z-index: 100;
-  min-width: 200px;
-}
-
-.popup-context {
-  margin-bottom: 10px;
-}
-
-.context-label {
-  font-size: var(--font-size-xs);
-  color: var(--text-accent);
-}
-
-.popup-actions {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.quick-questions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+.qa-column {
+  width: 360px;
+  padding: 16px;
+  padding-left: 0;
 }
 
 .qa-panel {
-  width: var(--qa-panel-width);
-  background-color: var(--bg-sidebar);
-  border-left: 1px solid var(--border-color);
+  position: relative;
   display: flex;
   flex-direction: column;
+  gap: 16px;
 }
 
-.qa-header {
+.current-panel {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  position: fixed;
+  right: 20px;
+  width: 450px;
+  transform: translateY(-50%);
+  z-index: 100;
+  box-shadow: var(--shadow-md);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.current-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 12px;
 }
 
-.qa-title {
+.current-label {
   font-size: var(--font-size-sm);
-  color: var(--text-primary);
+  color: var(--text-accent);
   font-weight: 500;
 }
 
-.qa-context {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-light);
+.current-context {
+  margin-bottom: 12px;
 }
 
 .context-quote {
   font-size: var(--font-size-xs);
   color: var(--text-secondary);
-  line-height: 1.5;
-  padding-left: 12px;
-  border-left: 2px solid var(--text-accent);
-  background: rgba(37, 99, 235, 0.05);
+  background: var(--bg-hover);
   padding: 8px 12px;
-  border-radius: 4px;
+  border-radius: 6px;
+  display: block;
+  line-height: 1.5;
 }
 
-.qa-stream {
-  padding: 16px;
-  flex: 1;
-  overflow-y: auto;
+.quick-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.card-input-area {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+
+.card-input-field {
+  margin-bottom: 8px;
+}
+
+.annotation-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: var(--font-size-sm);
+  background: var(--bg-main);
+  color: var(--text-primary);
+}
+
+.annotation-input:focus {
+  outline: none;
+  border-color: var(--text-accent);
+}
+
+.card-success {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--success-color);
+}
+
+.card-input-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.stream-area {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+
+.stream-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  margin-bottom: 8px;
 }
 
 .stream-content {
@@ -879,32 +996,129 @@ function toggleSidebar() {
   color: var(--text-primary);
 }
 
-.stream-content :deep(.katex-display) {
-  overflow-x: auto;
+.stream-content :deep(p) {
   margin: 0.5em 0;
+}
+
+.stream-content :deep(h1) {
+  font-size: 1.4em;
+  margin: 0.8em 0 0.4em;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.stream-content :deep(h2) {
+  font-size: 1.2em;
+  margin: 0.6em 0 0.3em;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.stream-content :deep(h3) {
+  font-size: 1.1em;
+  margin: 0.5em 0 0.2em;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.stream-content :deep(ul),
+.stream-content :deep(ol) {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.stream-content :deep(li) {
+  margin: 0.2em 0;
+}
+
+.stream-content :deep(code) {
+  background: var(--bg-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.stream-content :deep(pre) {
+  background: var(--bg-sidebar);
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0.8em 0;
+}
+
+.stream-content :deep(pre code) {
+  background: transparent;
+  padding: 0;
+}
+
+.stream-content :deep(blockquote) {
+  border-left: 3px solid var(--text-accent);
+  padding-left: 12px;
+  margin: 0.8em 0;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border-radius: 0 8px 8px 0;
+}
+
+.stream-content :deep(strong) {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.stream-content :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.8em 0;
+}
+
+.stream-content :deep(th),
+.stream-content :deep(td) {
+  border: 1px solid var(--border-color);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.stream-content :deep(th) {
+  background: var(--bg-sidebar);
+  font-weight: 600;
+}
+
+.stream-content :deep(.katex) {
+  font-size: 1.1em;
+}
+
+.stream-content :deep(.katex-display) {
+  margin: 1em 0;
+  overflow-x: auto;
+  padding: 0.5em 0;
+}
+
+.stream-content :deep(.katex-display > .katex) {
+  text-align: center;
 }
 
 .stream-loading {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 0;
   color: var(--text-accent);
-  font-size: var(--font-size-xs);
+  margin-top: 8px;
 }
 
 .stream-actions {
-  padding-top: 12px;
-  border-top: 1px solid var(--border-light);
   margin-top: 12px;
 }
 
-.qa-history {
-  flex: 1;
-  padding: 16px;
-  overflow: hidden;
+.panel-actions {
   display: flex;
-  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.history-section {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
 }
 
 .history-header {
@@ -912,127 +1126,244 @@ function toggleSidebar() {
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  font-size: var(--font-size-xs);
-  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
 }
 
 .history-count {
-  color: var(--text-muted);
-}
-
-.qa-item {
-  padding: 12px;
-  margin-bottom: 12px;
-  background: var(--bg-hover);
-  border-radius: 6px;
-}
-
-.qa-question {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  font-size: var(--font-size-xs);
-  color: var(--text-accent);
-  margin-bottom: 8px;
-}
-
-.qa-answer {
   font-size: var(--font-size-xs);
   color: var(--text-secondary);
-  line-height: 1.5;
+  background: var(--bg-hover);
+  padding: 2px 8px;
+  border-radius: 10px;
 }
 
-.qa-answer :deep(.katex-display) {
-  overflow-x: auto;
-}
-
-.qa-empty {
+.history-empty {
   text-align: center;
   color: var(--text-secondary);
-  padding: 40px 16px;
+  padding: 20px;
   font-size: var(--font-size-xs);
 }
 
-.qa-empty .hint {
-  color: var(--text-muted);
-  margin-top: 6px;
-}
-
-.card-input-inline {
-  position: absolute;
-  background: var(--bg-main);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 12px;
-  box-shadow: var(--shadow-md);
-  z-index: 100;
-  min-width: 280px;
-  max-width: 400px;
-}
-
-.card-input-context {
-  margin-bottom: 10px;
-}
-
-.card-input-context .context-label {
-  font-size: var(--font-size-xs);
-  color: var(--text-secondary);
-}
-
-.card-input-context .context-preview {
-  font-size: var(--font-size-xs);
-  color: var(--text-primary);
-  display: block;
-  margin-top: 4px;
-  padding: 6px 10px;
-  background: rgba(37, 99, 235, 0.05);
-  border-radius: 4px;
-  border-left: 2px solid var(--text-accent);
-}
-
-.card-input-field {
-  margin-bottom: 10px;
-}
-
-.annotation-input {
-  width: 100%;
-  border: none;
-  border-bottom: 1px solid var(--border-color);
-  background: transparent;
-  padding: 8px 0;
-  font-size: var(--font-size-sm);
-  color: var(--text-primary);
-  outline: none;
-  transition: border-color var(--transition-fast);
-}
-
-.annotation-input:focus {
-  border-bottom-color: var(--text-accent);
-}
-
-.annotation-input::placeholder {
+.history-empty .hint {
+  margin-top: 8px;
   color: var(--text-muted);
 }
 
-.card-success {
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history-item {
+  border-radius: 6px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+
+.history-question {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 0;
-}
-
-.card-success .success-icon {
-  font-size: 14px;
-}
-
-.card-success .success-text {
+  padding: 10px;
+  cursor: pointer;
   font-size: var(--font-size-xs);
-  color: #059669;
 }
 
-.card-input-actions {
+.question-text {
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+.expand-icon {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.history-answer {
+  padding: 10px;
+  padding-top: 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.history-answer :deep(p) {
+  margin: 0.3em 0;
+}
+
+.history-answer :deep(h1) {
+  font-size: 1.3em;
+  margin: 0.6em 0 0.3em;
+  font-weight: 600;
+}
+
+.history-answer :deep(h2) {
+  font-size: 1.1em;
+  margin: 0.5em 0 0.2em;
+  font-weight: 600;
+}
+
+.history-answer :deep(h3) {
+  font-size: 1em;
+  margin: 0.4em 0 0.2em;
+  font-weight: 600;
+}
+
+.history-answer :deep(ul),
+.history-answer :deep(ol) {
+  margin: 0.4em 0;
+  padding-left: 1.2em;
+}
+
+.history-answer :deep(li) {
+  margin: 0.15em 0;
+}
+
+.history-answer :deep(code) {
+  background: var(--bg-hover);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.history-answer :deep(pre) {
+  background: var(--bg-sidebar);
+  padding: 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+
+.history-answer :deep(pre code) {
+  background: transparent;
+  padding: 0;
+}
+
+.history-answer :deep(blockquote) {
+  border-left: 2px solid var(--text-accent);
+  padding-left: 8px;
+  margin: 0.5em 0;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border-radius: 0 6px 6px 0;
+}
+
+.history-answer :deep(strong) {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.history-answer :deep(.katex) {
+  font-size: 1.05em;
+}
+
+.history-answer :deep(.katex-display) {
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+
+.history-answer :deep(.katex-display > .katex) {
+  text-align: center;
+}
+
+.parsing-view {
+  min-height: 100vh;
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  flex-direction: column;
+}
+
+.parse-header {
+  position: sticky;
+  top: 0;
+  background: var(--bg-main);
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border-color);
+  z-index: 20;
+}
+
+.progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.progress-bar .el-progress {
+  flex: 1;
+}
+
+.progress-text {
+  font-size: var(--font-size-sm);
+  color: var(--text-accent);
+  font-weight: 500;
+  min-width: 40px;
+}
+
+.parse-stage {
+  margin-top: 8px;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.parsing-content {
+  flex: 1;
+  padding: 24px 10vw;
+  overflow-y: auto;
+}
+
+.stream-output {
+  font-size: var(--font-size-base);
+  line-height: 1.8;
+  color: var(--text-primary);
+}
+
+.stream-text {
+  white-space: pre-wrap;
+}
+
+.stream-text :deep(h1) {
+  font-size: 1.8em;
+  margin: 1em 0 0.5em;
+  color: var(--text-primary);
+}
+
+.stream-text :deep(h2) {
+  font-size: 1.4em;
+  margin: 1em 0 0.5em;
+  color: var(--text-primary);
+}
+
+.stream-text :deep(h3) {
+  font-size: 1.2em;
+  margin: 1em 0 0.5em;
+  color: var(--text-primary);
+}
+
+.stream-text :deep(p) {
+  margin: 0.8em 0;
+  line-height: 1.8;
+}
+
+.stream-waiting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.waiting-text {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.cursor-blink {
+  color: var(--text-accent);
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
 }
 </style>

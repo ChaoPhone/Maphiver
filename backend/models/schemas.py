@@ -230,3 +230,47 @@ class CardCreateRequest(BaseModel):
 
 class CardUpdateRequest(BaseModel):
     annotation: str
+
+
+class DocumentLink(BaseModel):
+    id: str
+    source_document_id: str
+    target_document_id: str
+    link_type: str = "reference"
+    context: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+class DocumentLinkResponse(BaseModel):
+    id: str
+    source_document_id: str
+    target_document_id: str
+    link_type: str
+    context: Optional[str] = None
+    target_document: Optional[DocumentResponse] = None
+    created_at: datetime
+
+
+class DocumentLinkListResponse(BaseModel):
+    links: List[DocumentLinkResponse]
+    total: int
+
+
+class DocumentLinkCreateRequest(BaseModel):
+    source_document_id: str
+    target_document_id: str
+    link_type: str = "reference"
+    context: Optional[str] = None
+
+
+class ExportRequest(BaseModel):
+    session_id: str
+    format: str = "markdown"
+    include_cards: bool = True
+    include_qa: bool = True
+
+
+class ExportResponse(BaseModel):
+    content: str
+    filename: str
+    format: str

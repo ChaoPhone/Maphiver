@@ -28,9 +28,17 @@ export function restoreLatexNewlines(renderedHtml: string): string {
 export function preprocessLatexFormula(formula: string): string {
   let processed = formula.trim()
   
-  processed = processed.replace(/\r\n|\r|\n/g, ' ')
+  const hasMatrix = /\\begin\{(pmatrix|bmatrix|vmatrix|Vmatrix|matrix|array)\}/.test(processed)
   
-  processed = processed.replace(/\s+/g, ' ')
+  if (!hasMatrix) {
+    processed = processed.replace(/\r\n|\r|\n/g, ' ')
+    processed = processed.replace(/\s+/g, ' ')
+  } else {
+    processed = processed.replace(/\r\n|\r|\n/g, ' ')
+    processed = processed.replace(/\s+/g, ' ')
+    processed = processed.replace(/\\\\\\\\/g, '\\\\')
+    processed = processed.replace(/\\{2,4}/g, '\\\\')
+  }
   
   processed = processed.replace(/\\\\\\\\/g, '\\\\')
   

@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Document, Session, QAMessage, QuickQuestion, ContentBlock, Footprint, KnowledgeCard } from '@/types'
+import type { Document, Session, QAMessage, QuickQuestion, ContentBlock, Footprint, KnowledgeCard, DocumentLink, ExportRequest, ExportResponse } from '@/types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -207,4 +207,38 @@ export async function updateCard(id: string, annotation: string): Promise<Knowle
 
 export async function deleteCard(id: string): Promise<void> {
   await api.delete(`/cards/${id}`)
+}
+
+export async function getDocumentLinksBySource(documentId: string): Promise<DocumentLink[]> {
+  const response = await api.get(`/document-links/source/${documentId}`)
+  return response.data.links
+}
+
+export async function getDocumentLinksByTarget(documentId: string): Promise<DocumentLink[]> {
+  const response = await api.get(`/document-links/target/${documentId}`)
+  return response.data.links
+}
+
+export async function createDocumentLink(
+  sourceDocumentId: string,
+  targetDocumentId: string,
+  linkType?: string,
+  context?: string
+): Promise<DocumentLink> {
+  const response = await api.post('/document-links/', {
+    source_document_id: sourceDocumentId,
+    target_document_id: targetDocumentId,
+    link_type: linkType || 'reference',
+    context,
+  })
+  return response.data
+}
+
+export async function deleteDocumentLink(linkId: string): Promise<void> {
+  await api.delete(`/document-links/${linkId}`)
+}
+
+export async function exportSession(request: ExportRequest): Promise<ExportResponse> {
+  const response = await api.post('/export/', request)
+  return response.data
 }

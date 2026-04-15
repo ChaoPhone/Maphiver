@@ -112,6 +112,6 @@ async def get_quick_questions_api():
             QuickQuestion(type="详细", template="请详细解释这段内容"),
             QuickQuestion(type="简化", template="请用通俗的语言简化这段内容"),
             QuickQuestion(type="类比", template="请用一个类比来解释这段内容"),
-            QuickQuestion(type="举例", template="请举一个具体的例子来说明这段内容"),
+            QuickQuestion(type="解题", template="请给出这道题的详细解答步骤"),
         ]
     )

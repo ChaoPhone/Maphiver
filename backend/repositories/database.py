@@ -76,6 +76,20 @@ CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_cards_session ON knowledge_cards(session_id);
 CREATE INDEX IF NOT EXISTS idx_footprints_session ON footprints(session_id);
+
+CREATE TABLE IF NOT EXISTS document_links (
+    id TEXT PRIMARY KEY,
+    source_document_id TEXT NOT NULL,
+    target_document_id TEXT NOT NULL,
+    link_type TEXT DEFAULT 'reference',
+    context TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (source_document_id) REFERENCES documents(id),
+    FOREIGN KEY (target_document_id) REFERENCES documents(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_links_source ON document_links(source_document_id);
+CREATE INDEX IF NOT EXISTS idx_links_target ON document_links(target_document_id);
 """
 
 
@@ -182,6 +196,109 @@ class DocumentRepository:
             )
             for row in rows
         ]
+
+
+class DocumentLinkRepository:
+    @staticmethod
+    def create(link: "DocumentLink") -> "DocumentLink":
+        from models.schemas import DocumentLink
+        conn = _get_connection()
+        conn.execute(
+            """
+            INSERT INTO document_links (id, source_document_id, target_document_id, link_type, context, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                link.id,
+                link.source_document_id,
+                link.target_document_id,
+                link.link_type,
+                link.context,
+                link.created_at.isoformat() if link.created_at else datetime.now().isoformat(),
+            ),
+        )
+        conn.commit()
+        conn.close()
+        return link
+
+    @staticmethod
+    def get(link_id: str) -> Optional["DocumentLink"]:
+        from models.schemas import DocumentLink
+        conn = _get_connection()
+        row = conn.execute(
+            "SELECT * FROM document_links WHERE id = ?", (link_id,)
+        ).fetchone()
+        conn.close()
+        if row is None:
+            return None
+        return DocumentLink(
+            id=row["id"],
+            source_document_id=row["source_document_id"],
+            target_document_id=row["target_document_id"],
+            link_type=row["link_type"],
+            context=row["context"],
+            created_at=_parse_datetime(row["created_at"]) or datetime.now(),
+        )
+
+    @staticmethod
+    def list_by_source(source_document_id: str) -> List["DocumentLink"]:
+        from models.schemas import DocumentLink
+        conn = _get_connection()
+        rows = conn.execute(
+            "SELECT * FROM document_links WHERE source_document_id = ? ORDER BY created_at DESC",
+            (source_document_id,),
+        ).fetchall()
+        conn.close()
+        return [
+            DocumentLink(
+                id=row["id"],
+                source_document_id=row["source_document_id"],
+                target_document_id=row["target_document_id"],
+                link_type=row["link_type"],
+                context=row["context"],
+                created_at=_parse_datetime(row["created_at"]) or datetime.now(),
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    def list_by_target(target_document_id: str) -> List["DocumentLink"]:
+        from models.schemas import DocumentLink
+        conn = _get_connection()
+        rows = conn.execute(
+            "SELECT * FROM document_links WHERE target_document_id = ? ORDER BY created_at DESC",
+            (target_document_id,),
+        ).fetchall()
+        conn.close()
+        return [
+            DocumentLink(
+                id=row["id"],
+                source_document_id=row["source_document_id"],
+                target_document_id=row["target_document_id"],
+                link_type=row["link_type"],
+                context=row["context"],
+                created_at=_parse_datetime(row["created_at"]) or datetime.now(),
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    def delete(link_id: str) -> bool:
+        conn = _get_connection()
+        conn.execute("DELETE FROM document_links WHERE id = ?", (link_id,))
+        conn.commit()
+        conn.close()
+        return True
+
+    @staticmethod
+    def exists(source_document_id: str, target_document_id: str) -> bool:
+        conn = _get_connection()
+        row = conn.execute(
+            "SELECT id FROM document_links WHERE source_document_id = ? AND target_document_id = ?",
+            (source_document_id, target_document_id),
+        ).fetchone()
+        conn.close()
+        return row is not None
 
 
 class SessionRepository:

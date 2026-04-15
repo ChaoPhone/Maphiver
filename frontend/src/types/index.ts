@@ -72,3 +72,26 @@ export interface KnowledgeCard {
   block_id?: string
   created_at: string
 }
+
+export interface DocumentLink {
+  id: string
+  source_document_id: string
+  target_document_id: string
+  link_type: string
+  context?: string
+  target_document?: Document
+  created_at: string
+}
+
+export interface ExportRequest {
+  session_id: string
+  format: 'markdown' | 'pdf'
+  include_cards: boolean
+  include_qa: boolean
+}
+
+export interface ExportResponse {
+  content: string
+  filename: string
+  format: string
+}

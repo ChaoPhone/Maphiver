@@ -5,18 +5,18 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      name: 'home',
-      component: () => import('@/views/Home.vue'),
-    },
-    {
-      path: '/upload',
-      name: 'upload',
-      component: () => import('@/views/Upload.vue'),
+      name: 'read',
+      component: () => import('@/views/Read.vue'),
     },
     {
       path: '/read/:sessionId',
-      name: 'read',
+      name: 'read-session',
       component: () => import('@/views/Read.vue'),
+    },
+    {
+      path: '/history',
+      name: 'history',
+      component: () => import('@/views/Home.vue'),
     },
   ],
 })
