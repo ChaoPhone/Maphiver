@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Notebook, Plus, Edit, Delete } from '@element-plus/icons-vue'
+import { Notebook, Plus, Edit, Delete, Document, ChatLineSquare } from '@element-plus/icons-vue'
 import type { KnowledgeCard } from '@/types'
 import * as api from '@/api'
 
@@ -134,56 +134,74 @@ function formatDate(dateStr: string): string {
 </script>
 
 <template>
-  <el-card class="card-panel" v-loading="loading">
+  <el-card class="study-card-panel" v-loading="loading" shadow="never">
     <template #header>
       <div class="panel-header">
-        <el-icon><Notebook /></el-icon>
-        <span>知识卡片</span>
-        <el-tag size="small" type="info">{{ cardCount }} 张</el-tag>
+        <div class="header-title">
+          <el-icon class="header-icon"><Notebook /></el-icon>
+          <span>知识闪卡</span>
+        </div>
+        <span class="card-count">{{ cardCount }} 张</span>
       </div>
     </template>
     
-    <div v-if="hasSelection" class="selection-area">
-      <el-tag closable @close="emit('clear-selection')" type="success">
-        已选中 {{ selectedText.length }} 字
-      </el-tag>
-      <div class="selection-preview">{{ selectedText.slice(0, 80) }}...</div>
-      <el-button 
-        :icon="Plus" 
-        type="primary" 
-        size="small"
-        @click="openCreateDialog"
-      >
-        摘录为卡片
-      </el-button>
-    </div>
+    <!-- 沉浸式选词区 -->
+    <transition name="fade-slide">
+      <div v-if="hasSelection" class="selection-area">
+        <div class="selection-header">
+          <span class="selection-label">正在摘录</span>
+          <el-button link type="info" size="small" @click="emit('clear-selection')">取消</el-button>
+        </div>
+        <div class="selection-preview">{{ selectedText.slice(0, 100) }}{{ selectedText.length > 100 ? '...' : '' }}</div>
+        <div class="selection-actions">
+          <span class="word-count">{{ selectedText.length }} 字</span>
+          <el-button 
+            :icon="Plus" 
+            class="capture-btn"
+            size="small"
+            @click="openCreateDialog"
+          >
+            保存为卡片
+          </el-button>
+        </div>
+      </div>
+    </transition>
     
-    <el-scrollbar height="200px" class="cards-list">
-      <div v-if="cards.length === 0" class="empty-cards">
-        <p>暂无知识卡片</p>
-        <p class="hint">选中文本后点击"摘录"按钮创建</p>
+    <el-scrollbar height="100%" class="cards-list">
+      <div v-if="cards.length === 0" class="empty-state">
+        <el-icon class="empty-icon"><Document /></el-icon>
+        <p>你的知识库还是空的</p>
+        <p class="hint">在阅读时选中文本，即可开始沉淀知识</p>
       </div>
       
-      <div v-for="card in cards" :key="card.id" class="card-item">
-        <div class="card-source">{{ card.source_text.slice(0, 100) }}...</div>
-        <div v-if="card.annotation" class="card-annotation">
-          <span class="annotation-label">批注:</span>
-          {{ card.annotation }}
+      <div v-for="card in cards" :key="card.id" class="knowledge-card">
+        <!-- 原文区 -->
+        <div class="card-source">
+          {{ card.source_text }}
         </div>
-        <div class="card-meta">
+        
+        <!-- 批注区 -->
+        <div v-if="card.annotation" class="card-annotation">
+          <el-icon class="annotation-icon"><ChatLineSquare /></el-icon>
+          <div class="annotation-content">{{ card.annotation }}</div>
+        </div>
+        
+        <!-- 元数据与操作区 -->
+        <div class="card-footer">
           <span class="card-time">{{ formatDate(card.created_at) }}</span>
           <div class="card-actions">
             <el-button 
               :icon="Edit" 
               size="small" 
-              text
+              link
+              class="action-btn"
               @click="openEditDialog(card)"
             />
             <el-button 
               :icon="Delete" 
               size="small" 
-              text
-              type="danger"
+              link
+              class="action-btn delete-btn"
               @click="deleteCard(card)"
             />
           </div>
@@ -191,163 +209,348 @@ function formatDate(dateStr: string): string {
       </div>
     </el-scrollbar>
     
+    <!-- 极简风格的弹窗 -->
     <el-dialog
       v-model="showCreateDialog"
-      title="创建知识卡片"
-      width="400px"
+      title="记录你的思考"
+      width="450px"
       :close-on-click-modal="false"
+      class="study-dialog"
     >
-      <div class="create-dialog-content">
-        <div class="source-preview">
-          <div class="source-label">摘录内容:</div>
-          <div class="source-text">{{ selectedText.slice(0, 200) }}{{ selectedText.length > 200 ? '...' : '' }}</div>
+      <div class="dialog-content">
+        <div class="quote-preview">
+          {{ selectedText.slice(0, 200) }}{{ selectedText.length > 200 ? '...' : '' }}
         </div>
         <el-input
           v-model="annotation"
           type="textarea"
-          :rows="3"
-          placeholder="添加批注（可选）"
+          :rows="4"
+          placeholder="写下你对此处内容的感悟或批注（选填）..."
+          class="study-textarea"
         />
       </div>
       <template #footer>
-        <el-button @click="closeCreateDialog">取消</el-button>
-        <el-button type="primary" @click="createCard" :loading="loading">保存</el-button>
+        <el-button @click="closeCreateDialog" plain>取消</el-button>
+        <el-button color="#303133" @click="createCard" :loading="loading">存入卡片</el-button>
       </template>
     </el-dialog>
     
     <el-dialog
       v-model="showEditDialog"
-      title="编辑批注"
-      width="400px"
+      title="修改批注"
+      width="450px"
       :close-on-click-modal="false"
+      class="study-dialog"
     >
-      <div class="edit-dialog-content">
-        <div class="source-preview">
-          <div class="source-label">原文:</div>
-          <div class="source-text">{{ editingCard?.source_text?.slice(0, 150) }}...</div>
+      <div class="dialog-content">
+        <div class="quote-preview">
+          {{ editingCard?.source_text?.slice(0, 150) }}...
         </div>
         <el-input
           v-model="editAnnotation"
           type="textarea"
-          :rows="3"
-          placeholder="修改批注内容"
+          :rows="4"
+          placeholder="修改你的批注..."
+          class="study-textarea"
         />
       </div>
       <template #footer>
-        <el-button @click="closeEditDialog">取消</el-button>
-        <el-button type="primary" @click="updateCard" :loading="loading">保存</el-button>
+        <el-button @click="closeEditDialog" plain>取消</el-button>
+        <el-button color="#303133" @click="updateCard" :loading="loading">保存修改</el-button>
       </template>
     </el-dialog>
   </el-card>
 </template>
 
 <style scoped>
-.card-panel {
+/* 容器基础样式 */
+.study-card-panel {
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  border-right: 1px solid #ebeef5; /* 如果作为侧边栏，可以用极细的边框代替阴影 */
+  border-radius: 0;
+  background-color: #fafafa;
 }
 
+:deep(.el-card__header) {
+  padding: 16px 20px;
+  border-bottom: 1px solid #f0f0f0;
+  background-color: #fff;
+}
+
+:deep(.el-card__body) {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  background-color: #fafafa;
+}
+
+/* 头部样式 */
 .panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-title {
   display: flex;
   align-items: center;
   gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
 }
 
+.header-icon {
+  font-size: 18px;
+  color: #606266;
+}
+
+.card-count {
+  font-size: 12px;
+  color: #909399;
+  background: #f4f4f5;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+/* 选区卡片 (Action Sheet 风格) */
 .selection-area {
-  padding: 10px;
-  background: #f0f9eb;
+  background: #ffffff;
+  border: 1px solid #e4e7ed;
   border-radius: 8px;
-  margin-bottom: 15px;
+  padding: 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+  position: relative;
+}
+
+.selection-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.selection-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #909399;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .selection-preview {
-  font-size: 12px;
-  color: #67c23a;
-  margin: 8px 0;
-  padding: 5px;
-  background: #fff;
-  border-radius: 4px;
+  font-size: 14px;
+  color: #606266;
+  line-height: 1.6;
+  margin-bottom: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.cards-list {
-  margin-top: 10px;
+.selection-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px dashed #ebeef5;
+  padding-top: 12px;
 }
 
-.empty-cards {
-  text-align: center;
-  padding: 20px;
-  color: #909399;
-}
-
-.empty-cards .hint {
+.word-count {
   font-size: 12px;
   color: #c0c4cc;
 }
 
-.card-item {
-  padding: 12px;
-  background: #f5f7fa;
-  border-radius: 8px;
-  margin-bottom: 10px;
+.capture-btn {
+  background-color: #303133;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  transition: opacity 0.2s;
+}
+.capture-btn:hover {
+  background-color: #4a4a4a;
+  color: #fff;
 }
 
-.card-source {
-  color: #303133;
-  line-height: 1.5;
-  font-size: 13px;
+/* 列表容器 */
+.cards-list {
+  flex: 1;
+  margin-right: -10px; /* 为滚动条留白 */
+  padding-right: 10px;
 }
 
-.card-annotation {
-  margin-top: 8px;
-  padding: 8px;
-  background: #ecf5ff;
-  border-radius: 4px;
+/* 空状态 */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #909399;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.empty-icon {
+  font-size: 48px;
+  color: #dcdfe6;
+  margin-bottom: 16px;
+}
+
+.empty-state p {
+  margin: 4px 0;
+  font-size: 14px;
+}
+
+.empty-state .hint {
   font-size: 12px;
-  color: #409eff;
+  color: #c0c4cc;
 }
 
-.annotation-label {
-  font-weight: 500;
-  margin-right: 4px;
+/* 知识卡片主体 */
+.knowledge-card {
+  background: #ffffff;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
 }
 
-.card-meta {
+.knowledge-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  border-color: #dcdfe6;
+}
+
+/* 原文样式 (带左侧引用线) */
+.card-source {
+  color: #4a4a4a;
+  line-height: 1.7;
+  font-size: 14px;
+  position: relative;
+  padding-left: 14px;
+  margin-bottom: 12px;
+}
+
+.card-source::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  background-color: #dcdfe6;
+  border-radius: 2px;
+}
+
+/* 批注样式 (仿便签暖色背景) */
+.card-annotation {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  background: #fdfcf8; /* 极淡的暖黄色 */
+  border: 1px solid #f4f1e1;
+  border-radius: 6px;
+  margin-top: 12px;
+}
+
+.annotation-icon {
+  color: #e6a23c;
+  font-size: 14px;
+  margin-top: 2px;
+}
+
+.annotation-content {
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.6;
+}
+
+/* 卡片底部操作区 */
+.card-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #f5f7fa;
 }
 
 .card-time {
   font-size: 12px;
-  color: #909399;
+  color: #c0c4cc;
 }
 
 .card-actions {
   display: flex;
   gap: 4px;
+  opacity: 0; /* 默认隐藏，降低干扰 */
+  transition: opacity 0.2s;
 }
 
-.create-dialog-content,
-.edit-dialog-content {
+.knowledge-card:hover .card-actions {
+  opacity: 1; /* 悬浮时展示 */
+}
+
+.action-btn {
+  color: #909399;
+}
+
+.action-btn:hover {
+  color: #409eff;
+  background: #f4f4f5;
+}
+
+.delete-btn:hover {
+  color: #f56c6c;
+}
+
+/* 弹窗内的沉浸式输入设计 */
+.dialog-content {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 16px;
 }
 
-.source-preview {
-  padding: 10px;
+.quote-preview {
+  padding: 12px 16px;
   background: #f5f7fa;
-  border-radius: 4px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.6;
+  font-style: italic;
 }
 
-.source-label {
-  font-size: 12px;
-  color: #909399;
-  margin-bottom: 5px;
+:deep(.study-textarea .el-textarea__inner) {
+  background-color: #ffffff;
+  border: 1px solid #dcdfe6;
+  box-shadow: none;
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 12px;
+  resize: none;
 }
 
-.source-text {
-  color: #303133;
-  line-height: 1.5;
+:deep(.study-textarea .el-textarea__inner:focus) {
+  border-color: #909399;
+}
+
+/* 动画效果 */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.fade-slide-enter-from,
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
 }
 </style>

@@ -5,13 +5,38 @@ import { useSessionStore, useDocumentStore } from '@/stores'
 import { marked } from 'marked'
 import katex from 'katex'
 import { ElMessage, ElScrollbar, ElUpload, ElProgress, ElIcon } from 'element-plus'
-import { ChatDotRound, UploadFilled, Notebook, EditPen, QuestionFilled, Close, ArrowLeft } from '@element-plus/icons-vue'
+import { ChatDotRound, UploadFilled, Notebook, EditPen, QuestionFilled, Close, ArrowLeft, Sunny, Moon, FullScreen, Reading } from '@element-plus/icons-vue'
 import type { KnowledgeCard } from '@/types'
 import * as api from '@/api'
 import FootprintPanel from '@/components/FootprintPanel.vue'
 import { extractLatexBlocks } from '@/utils/latex'
 
 marked.setOptions({ breaks: true, gfm: true })
+
+const isDarkMode = ref(false)
+const isFocusMode = ref(false)
+
+function toggleTheme() {
+  isDarkMode.value = !isDarkMode.value
+  if (isDarkMode.value) {
+    document.documentElement.setAttribute('data-theme', 'dark')
+  } else {
+    document.documentElement.removeAttribute('data-theme')
+  }
+  localStorage.setItem('maphiver-theme', isDarkMode.value ? 'dark' : 'light')
+}
+
+function toggleFocusMode() {
+  isFocusMode.value = !isFocusMode.value
+}
+
+onMounted(() => {
+  const savedTheme = localStorage.getItem('maphiver-theme')
+  if (savedTheme === 'dark') {
+    isDarkMode.value = true
+    document.documentElement.setAttribute('data-theme', 'dark')
+  }
+})
 
 function renderMarkdownWithLatex(markdown: string): string {
   if (!markdown) return ''
@@ -77,6 +102,17 @@ const panelPosition = ref({ top: 0, right: 0 })
 const sessionId = computed(() => route.params.sessionId as string)
 const hasDocument = computed(() => !!sessionStore.currentSession?.document_id)
 const qaMessages = computed(() => sessionStore.qaMessages)
+const documentTitle = computed(() => sessionStore.currentSession?.document?.filename || '流式知识河')
+const documentPageCount = computed(() => sessionStore.currentSession?.document?.page_count || 0)
+const readingSummary = computed(() => {
+  const parts: string[] = []
+  if (documentPageCount.value) {
+    parts.push(`${documentPageCount.value} 页`)
+  }
+  parts.push(`${qaMessages.value.length} 条问答`)
+  parts.push(`${cards.value.length} 张卡片`)
+  return parts.join(' · ')
+})
 
 const renderedMarkdown = computed(() => {
   return renderMarkdownWithLatex(documentStore.rawMarkdown)
@@ -275,8 +311,19 @@ function handleTextSelection(event: MouseEvent) {
       
       const scrollRect = scrollContainerRef.value?.getBoundingClientRect()
       if (scrollRect && rect) {
+        const panelHeight = 400
+        const panelTop = rect.top - scrollRect.top
+        
+        let adjustedTop = panelTop
+        
+        if (adjustedTop < 20) {
+          adjustedTop = 20
+        } else if (adjustedTop + panelHeight > scrollRect.height - 20) {
+          adjustedTop = scrollRect.height - panelHeight - 20
+        }
+        
         panelPosition.value = {
-          top: rect.top - scrollRect.top + rect.height / 2,
+          top: adjustedTop,
           right: 0
         }
       }
@@ -387,16 +434,23 @@ function goBack() {
 </script>
 
 <template>
-  <div class="maphiver-app" v-loading="loading" element-loading-text="正在加载...">
-    <div class="sidebar-trigger" @mouseenter="sidebarHovered = true" @mouseleave="sidebarHovered = false">
+  <div class="maphiver-app" :class="{ 'is-focus-mode': isFocusMode }" v-loading="loading">
+    <nav class="top-nav">
+      <div class="nav-left">
+        <el-button :icon="ArrowLeft" @click="goBack" text size="small" class="nav-btn" v-if="!isFocusMode"></el-button>
+        <span class="app-title" v-if="!isFocusMode">流式知识河</span>
+      </div>
+      <div class="nav-right">
+        <el-button :icon="isDarkMode ? Sunny : Moon" @click="toggleTheme" text size="small" class="nav-btn" :title="isDarkMode ? '浅色模式' : '深色模式'"></el-button>
+        <el-button :icon="isFocusMode ? Reading : FullScreen" @click="toggleFocusMode" text size="small" class="nav-btn" :title="isFocusMode ? '退出专注模式' : '专注模式'"></el-button>
+      </div>
+    </nav>
+
+    <div class="sidebar-trigger" v-if="!isFocusMode" @mouseenter="sidebarHovered = true" @mouseleave="sidebarHovered = false">
       <div class="trigger-bar"></div>
     </div>
     
-    <aside class="sidebar-hover" :class="{ 'is-visible': sidebarHovered }" @mouseenter="sidebarHovered = true" @mouseleave="sidebarHovered = false">
-      <div class="sidebar-header">
-        <el-button :icon="ArrowLeft" @click="goBack" text size="small">返回</el-button>
-      </div>
-      
+    <aside class="sidebar-hover" v-if="!isFocusMode" :class="{ 'is-visible': sidebarHovered }" @mouseenter="sidebarHovered = true" @mouseleave="sidebarHovered = false">
       <div class="sidebar-content">
         <div class="cards-section">
           <div class="section-header">
@@ -406,11 +460,9 @@ function goBack() {
           </div>
           
           <el-scrollbar height="180px">
-            <div v-if="cardsLoading" class="cards-loading">加载中...</div>
-            <div v-else-if="cards.length === 0" class="cards-empty">选中文字后点击"摘录"</div>
-            <div v-else class="cards-list">
+            <div v-if="cards.length > 0" class="cards-list">
               <div v-for="card in cards" :key="card.id" class="card-item">
-                <div class="card-source">{{ card.source_text.slice(0, 60) }}...</div>
+                <div class="card-source">{{ card.source_text.slice(0, 60) }}{{ card.source_text.length > 60 ? '...' : '' }}</div>
                 <div v-if="card.annotation" class="card-annotation">{{ card.annotation }}</div>
                 <div class="card-actions">
                   <el-button size="small" text :icon="EditPen">编辑</el-button>
@@ -427,180 +479,194 @@ function goBack() {
       </div>
     </aside>
 
-    <div class="scroll-container" ref="scrollContainerRef">
-      <div v-if="parsing" class="parsing-view">
-        <div class="parse-header">
-          <div class="progress-bar">
-            <el-progress :percentage="parseProgress" :stroke-width="6" :show-text="false" />
-            <span class="progress-text">{{ parseProgress }}%</span>
+    <div class="page-shell">
+
+      <div class="scroll-container" ref="scrollContainerRef">
+        <div v-if="parsing" class="parsing-view">
+          <div class="parse-hero">
+            <div class="parse-progress-panel">
+              <div class="progress-bar">
+                <el-progress :percentage="parseProgress" :stroke-width="6" :show-text="false" />
+                <span class="progress-text">{{ parseProgress }}%</span>
+              </div>
+              <div class="parse-stage">{{ parseStage }}</div>
+            </div>
           </div>
-          <div class="parse-stage">{{ parseStage }}</div>
-        </div>
-        
-        <div class="parsing-layout">
-          <div class="parsing-main">
-            <div class="parsing-content">
-              <div class="stream-output">
-                <div v-if="displayContent" class="stream-text" v-html="renderMarkdownWithLatex(displayContent)"></div>
-                <div v-else class="stream-waiting">
-                  <span class="waiting-text">等待AI格式化...</span>
+          
+          <div class="parsing-layout">
+            <div class="parsing-main">
+              <div class="parsing-content">
+                <div class="stream-output">
+                  <div v-if="displayContent" class="stream-text" v-html="renderMarkdownWithLatex(displayContent)"></div>
+                  <span v-if="parseStage.includes('格式化') && streamBuffer.length > 0" class="cursor-blink">█</span>
                 </div>
-                <span v-if="parseStage.includes('格式化') && streamBuffer.length > 0" class="cursor-blink">█</span>
               </div>
             </div>
           </div>
         </div>
-      </div>
-      
-      <div v-else-if="!hasDocument" class="upload-area">
-        <div class="upload-content">
-          <el-upload
-            drag
-            accept=".pdf,.doc,.docx"
-            :auto-upload="false"
-            :on-change="handleFileChange"
-            :file-list="fileList"
-            :limit="1"
-            :disabled="uploading || parsing"
-          >
-            <el-icon class="upload-icon"><upload-filled /></el-icon>
-            <div class="upload-text">拖拽文档文件到此处，或<em>点击上传</em></div>
-            <template #tip>
-              <div class="upload-tip">支持 PDF、DOC、DOCX 格式</div>
-            </template>
-          </el-upload>
-          
-          <el-button
-            type="primary"
-            :loading="uploading || parsing"
-            :disabled="fileList.length === 0"
-            @click="handleUpload"
-            class="upload-btn"
-          >
-            {{ parsing ? parseStage : uploading ? '上传中...' : '开始解析' }}
-          </el-button>
-          
-          <div v-if="parsing" class="parse-progress">
-            <el-progress :percentage="parseProgress" :status="parseProgress === 100 ? 'success' : ''" />
-          </div>
-        </div>
-      </div>
-      
-      <div v-else class="content-wrapper">
-        <div class="main-column" ref="contentRef">
-          <div class="doc-header">
-            <span class="doc-title">{{ sessionStore.currentSession?.document?.filename || '流式知识河' }}</span>
-          </div>
-          
-          <div class="breadcrumb-bar" :class="{ 'is-visible': showBreadcrumb && currentChapter }">
-            <span class="breadcrumb-text">{{ currentChapter }}</span>
-          </div>
-          
-          <div class="markdown-content" @mouseup="handleTextSelection">
-            <div v-html="renderedMarkdown"></div>
-            <div v-if="!documentStore.rawMarkdown && !loading" class="empty-content">
-              文档内容为空
+        
+        <div v-else-if="!hasDocument" class="upload-area">
+          <div class="upload-content">
+            <el-upload
+              drag
+              accept=".pdf,.doc,.docx"
+              :auto-upload="false"
+              :on-change="handleFileChange"
+              :file-list="fileList"
+              :limit="1"
+              :disabled="uploading || parsing"
+            >
+              <el-icon class="upload-icon"><upload-filled /></el-icon>
+              <div class="upload-text">拖拽文档文件到此处，或<em>点击上传</em></div>
+              <template #tip>
+                <div class="upload-tip">支持 PDF、DOC、DOCX 格式</div>
+              </template>
+            </el-upload>
+            
+            <el-button
+              type="primary"
+              :loading="uploading || parsing"
+              :disabled="fileList.length === 0"
+              @click="handleUpload"
+              class="upload-btn"
+            >
+              {{ parsing ? parseStage : uploading ? '上传中...' : '开始解析' }}
+            </el-button>
+            
+            <div v-if="parsing" class="parse-progress">
+              <el-progress :percentage="parseProgress" :status="parseProgress === 100 ? 'success' : ''" />
             </div>
           </div>
         </div>
         
-        <aside class="qa-column">
-          <div class="qa-panel">
-            <div v-if="showCurrentPanel" class="current-panel" :style="{ top: panelPosition.top + 'px' }">
-              <div class="current-header">
-                <span class="current-label">已选中 {{ selectedText.length }} 字</span>
-                <el-button size="small" text :icon="Close" @click="hideCurrentPanel" />
-              </div>
-              
-              <div class="current-context">
-                <span class="context-quote">{{ selectedText.slice(0, 100) }}{{ selectedText.length > 100 ? '...' : '' }}</span>
-              </div>
-              
-              <div class="quick-actions">
-                <el-button 
-                  v-for="q in quickQuestions" 
-                  :key="q.type"
-                  size="small"
-                  round
-                  @click="askQuestion(q.type)"
-                  :disabled="answering"
-                >
-                  {{ q.label }}
-                </el-button>
-              </div>
-              
-              <div v-if="showCardInput" class="card-input-area">
-                <div class="card-input-field">
-                  <input 
-                    v-model="cardAnnotation"
-                    type="text"
-                    placeholder="添加批注..."
-                    class="annotation-input"
-                    @keyup.enter="createCardWithAnnotation"
-                    @keyup.escape="cancelCardCreation"
-                    :disabled="cardCreating"
-                  />
-                </div>
-                <div v-if="cardSuccess" class="card-success">
-                  <span class="success-icon">✅</span>
-                  <span class="success-text">已汇入知识河</span>
-                </div>
-                <div v-else class="card-input-actions">
-                  <el-button size="small" text @click="cancelCardCreation">取消</el-button>
-                  <el-button size="small" type="primary" :loading="cardCreating" @click="createCardWithAnnotation">保存</el-button>
-                </div>
-              </div>
-              
-              <div v-if="streamingAnswer" class="stream-area">
-                <div class="stream-label">AI回复:</div>
-                <div class="stream-content" v-html="renderMarkdownWithLatex(streamingAnswer)"></div>
-                <div v-if="answering" class="stream-loading">
-                  <el-icon class="is-loading"><ChatDotRound /></el-icon>
-                  <span>回复中...</span>
-                </div>
-                <div v-if="!answering && streamingAnswer" class="stream-actions">
-                  <el-button size="small" text :icon="EditPen" @click="createCardFromSelection">
-                    摘录为卡片
-                  </el-button>
-                </div>
-              </div>
-              
-              <div v-else class="panel-actions">
-                <el-button size="small" :icon="EditPen" @click="showCardAnnotationInput">摘录卡片</el-button>
-              </div>
+        <div v-else class="content-wrapper">
+          <main class="main-column" ref="contentRef">
+            <div class="doc-header">
+              <span class="doc-title">{{ documentTitle }}</span>
             </div>
             
-            <div class="history-section">
-              <div class="history-header">
-                <span>历史问答</span>
-                <span class="history-count">{{ qaMessages.length }}</span>
+            <div class="breadcrumb-bar" :class="{ 'is-visible': showBreadcrumb && currentChapter }">
+              <span class="breadcrumb-text">{{ currentChapter }}</span>
+            </div>
+            
+            <div class="markdown-content" @mouseup="handleTextSelection">
+              <div v-html="renderedMarkdown"></div>
+              <div v-if="!documentStore.rawMarkdown && !loading" class="empty-content">
+                文档内容为空
               </div>
-              
-              <div v-if="qaMessages.length === 0" class="history-empty">
-                <p>选中文字后点击快捷按钮</p>
-                <p class="hint">AI回复将在此处显示</p>
-              </div>
-              
-              <div v-else class="history-list">
-                <div 
-                  v-for="msg in qaMessages" 
-                  :key="msg.id" 
-                  class="history-item"
-                  :class="{ 'is-expanded': expandedHistoryId === msg.id }"
-                >
-                  <div class="history-question" @click="toggleHistoryItem(msg.id)">
-                    <el-icon><QuestionFilled /></el-icon>
-                    <span class="question-text">{{ msg.question }}</span>
-                    <span class="expand-icon">{{ expandedHistoryId === msg.id ? '▼' : '▶' }}</span>
+            </div>
+          </main>
+          
+          <aside class="qa-column">
+            <div class="qa-panel">
+              <div v-if="showCurrentPanel" class="current-panel" :style="{ top: panelPosition.top + 'px' }">
+                <div class="current-header">
+                  <span class="current-label">已选中 {{ selectedText.length }} 字</span>
+                  <el-button size="small" text :icon="Close" @click="hideCurrentPanel" />
+                </div>
+                
+                <div class="current-context">
+                  <span class="context-quote">{{ selectedText.slice(0, 100) }}{{ selectedText.length > 100 ? '...' : '' }}</span>
+                </div>
+                
+                <div class="quick-actions">
+                  <el-button 
+                    v-for="q in quickQuestions" 
+                    :key="q.type"
+                    size="small"
+                    round
+                    @click="askQuestion(q.type)"
+                    :disabled="answering"
+                  >
+                    {{ q.label }}
+                  </el-button>
+                </div>
+
+                <div class="question-composer">
+                  <input
+                    v-model="question"
+                    type="text"
+                    placeholder="补一句深挖..."
+                    class="question-input"
+                    @keyup.enter="askQuestion()"
+                  />
+                  <el-button size="small" type="primary" plain :disabled="answering || !selectedText" @click="askQuestion()">提问</el-button>
+                </div>
+                
+                <div v-if="showCardInput" class="card-input-area">
+                  <div class="card-input-field">
+                    <input 
+                      v-model="cardAnnotation"
+                      type="text"
+                      placeholder="添加批注..."
+                      class="annotation-input"
+                      @keyup.enter="createCardWithAnnotation"
+                      @keyup.escape="cancelCardCreation"
+                      :disabled="cardCreating"
+                    />
                   </div>
-                  <div v-if="expandedHistoryId === msg.id" class="history-answer">
-                    <div v-html="renderMarkdownWithLatex(msg.answer)"></div>
+                  <div v-if="cardSuccess" class="card-success">
+                    <span class="success-icon">✓</span>
+                    <span class="success-text">已汇入知识河</span>
+                  </div>
+                  <div v-else class="card-input-actions">
+                    <el-button size="small" text @click="cancelCardCreation">取消</el-button>
+                    <el-button size="small" type="primary" :loading="cardCreating" @click="createCardWithAnnotation">保存</el-button>
+                  </div>
+                </div>
+                
+                <div v-if="streamingAnswer" class="stream-area">
+                  <div class="stream-label">AI 回复</div>
+                  <div class="stream-content" v-html="renderMarkdownWithLatex(streamingAnswer)"></div>
+                  <div v-if="answering" class="stream-loading">
+                    <el-icon class="is-loading"><ChatDotRound /></el-icon>
+                    <span>正在展开解释...</span>
+                  </div>
+                  <div v-if="!answering && streamingAnswer" class="stream-actions">
+                    <el-button size="small" text :icon="EditPen" @click="createCardFromSelection">
+                      摘录为卡片
+                    </el-button>
+                  </div>
+                </div>
+                
+                <div v-else class="panel-actions">
+                  <el-button size="small" :icon="EditPen" @click="showCardAnnotationInput">摘录卡片</el-button>
+                </div>
+              </div>
+              
+              <div class="history-section">
+                <div class="history-header">
+                  <div>
+                    <div class="history-overline">Conversation Archive</div>
+                    <span>历史问答</span>
+                  </div>
+                  <span class="history-count">{{ qaMessages.length }}</span>
+                </div>
+                
+                <div v-if="qaMessages.length === 0" class="history-empty"></div>
+                
+                <div v-else class="history-list">
+                  <div 
+                    v-for="msg in qaMessages" 
+                    :key="msg.id" 
+                    class="history-item"
+                    :class="{ 'is-expanded': expandedHistoryId === msg.id }"
+                  >
+                    <div class="history-question" @click="toggleHistoryItem(msg.id)">
+                      <el-icon><QuestionFilled /></el-icon>
+                      <span class="question-text">{{ msg.question }}</span>
+                      <span class="expand-icon">{{ expandedHistoryId === msg.id ? '▼' : '▶' }}</span>
+                    </div>
+                    <div v-if="expandedHistoryId === msg.id" class="history-answer">
+                      <div class="history-context">“{{ msg.selected_text.slice(0, 90) }}{{ msg.selected_text.length > 90 ? '...' : '' }}”</div>
+                      <div v-html="renderMarkdownWithLatex(msg.answer)"></div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </aside>
+          </aside>
+        </div>
       </div>
     </div>
   </div>
@@ -609,10 +675,49 @@ function goBack() {
 <style scoped>
 .maphiver-app {
   display: flex;
+  flex-direction: column;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
   background-color: var(--bg-main);
+}
+
+.top-nav {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 20px;
+  background: var(--bg-main);
+  border-bottom: 1px solid var(--border-color);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.nav-left,
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: var(--font-serif);
+  letter-spacing: 0.5px;
+}
+
+.nav-btn {
+  color: var(--text-secondary);
+}
+
+.nav-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .sidebar-trigger {
@@ -649,18 +754,11 @@ function goBack() {
   transition: transform var(--transition-normal);
   display: flex;
   flex-direction: column;
+  padding-top: 48px;
 }
 
 .sidebar-hover.is-visible {
   transform: translateX(0);
-}
-
-.sidebar-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
 }
 
 .sidebar-content {
@@ -707,8 +805,9 @@ function goBack() {
 
 .card-item {
   padding: 10px;
-  background: var(--bg-hover);
-  border-radius: 6px;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
 }
 
 .card-source {
@@ -722,8 +821,8 @@ function goBack() {
   color: var(--text-accent);
   margin-top: 6px;
   padding: 4px 8px;
-  background: rgba(37, 99, 235, 0.1);
-  border-radius: 4px;
+  background: color-mix(in srgb, var(--text-accent) 15%, transparent);
+  border-radius: var(--radius-sm);
 }
 
 .card-actions {
@@ -735,6 +834,13 @@ function goBack() {
 .footprints-section {
   flex: 1;
   min-height: 180px;
+}
+
+.page-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .scroll-container {
@@ -789,13 +895,22 @@ function goBack() {
 
 .content-wrapper {
   display: flex;
-  min-height: 100vh;
+  min-height: calc(100vh - 48px);
 }
 
 .main-column {
   flex: 1;
   min-width: 600px;
   padding: 0 10vw;
+  transition: padding var(--transition-normal);
+}
+
+.maphiver-app.is-focus-mode .main-column {
+  padding: 0 20vw;
+}
+
+.maphiver-app.is-focus-mode .qa-column {
+  display: none;
 }
 
 .doc-header {
@@ -835,41 +950,44 @@ function goBack() {
 }
 
 .markdown-content :deep(h1) {
-  font-size: 1.8em;
-  margin: 1.2em 0 0.6em;
+  font-size: 2em;
+  margin: 1.4em 0 0.7em;
   color: var(--text-primary);
   font-weight: 700;
   border-bottom: 2px solid var(--text-accent);
-  padding-bottom: 0.3em;
+  padding-bottom: 0.4em;
+  letter-spacing: -0.02em;
 }
 
 .markdown-content :deep(h2) {
-  font-size: 1.4em;
-  margin: 1em 0 0.5em;
+  font-size: 1.6em;
+  margin: 1.2em 0 0.6em;
   color: var(--text-primary);
   font-weight: 600;
   border-bottom: 1px solid var(--border-color);
-  padding-bottom: 0.2em;
+  padding-bottom: 0.3em;
+  letter-spacing: -0.01em;
 }
 
 .markdown-content :deep(h3) {
-  font-size: 1.2em;
-  margin: 0.8em 0 0.4em;
+  font-size: 1.3em;
+  margin: 1em 0 0.5em;
   color: var(--text-primary);
   font-weight: 600;
 }
 
 .markdown-content :deep(h4) {
-  font-size: 1.1em;
-  margin: 0.6em 0 0.3em;
+  font-size: 1.15em;
+  margin: 0.8em 0 0.4em;
   color: var(--text-primary);
   font-weight: 600;
 }
 
 .markdown-content :deep(p) {
-  margin: 0.8em 0;
-  line-height: 1.8;
+  margin: 0.9em 0;
+  line-height: 1.9;
   color: var(--text-primary);
+  font-family: var(--font-serif);
 }
 
 .markdown-content :deep(ul),
@@ -1013,18 +1131,18 @@ function goBack() {
 }
 
 .current-panel {
-  background: var(--bg-sidebar);
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 16px;
   position: fixed;
   right: 20px;
-  width: 450px;
-  transform: translateY(-50%);
+  width: 420px;
   z-index: 100;
   box-shadow: var(--shadow-md);
-  max-height: 80vh;
+  max-height: 75vh;
   overflow-y: auto;
+  transition: all var(--transition-fast);
 }
 
 .current-header {
@@ -1235,17 +1353,18 @@ function goBack() {
 }
 
 .history-section {
-  background: var(--bg-sidebar);
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 16px;
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  box-shadow: var(--shadow-sm);
 }
 
 .history-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   font-size: var(--font-size-sm);
   color: var(--text-primary);
 }
@@ -1255,7 +1374,7 @@ function goBack() {
   color: var(--text-secondary);
   background: var(--bg-hover);
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 
 .history-empty {
@@ -1277,9 +1396,27 @@ function goBack() {
 }
 
 .history-item {
-  border-radius: 6px;
-  background: var(--bg-hover);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
   overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.history-question {
+  padding: 10px 12px;
+  background: var(--bg-hover);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.history-question:hover {
+  background: var(--bg-active);
+}
+
+.history-answer {
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border-light);
 }
 
 .history-question {
