@@ -5,7 +5,7 @@ import { useSessionStore, useDocumentStore } from '@/stores'
 import { marked } from 'marked'
 import katex from 'katex'
 import { ElMessage, ElScrollbar, ElUpload, ElProgress, ElIcon } from 'element-plus'
-import { ChatDotRound, Document, UploadFilled, Notebook, EditPen, QuestionFilled, Close, ArrowLeft } from '@element-plus/icons-vue'
+import { ChatDotRound, UploadFilled, Notebook, EditPen, QuestionFilled, Close, ArrowLeft } from '@element-plus/icons-vue'
 import type { KnowledgeCard } from '@/types'
 import * as api from '@/api'
 import FootprintPanel from '@/components/FootprintPanel.vue'
@@ -262,7 +262,7 @@ function handleTextSelection(event: MouseEvent) {
   const selection = window.getSelection()
   if (selection && selection.toString().trim()) {
     const text = selection.toString().trim()
-    if (text.length > 10) {
+    if (text.length >= 1) {
       selectedText.value = text
       
       const range = selection.getRangeAt(0)
@@ -437,13 +437,17 @@ function goBack() {
           <div class="parse-stage">{{ parseStage }}</div>
         </div>
         
-        <div class="parsing-content">
-          <div class="stream-output">
-            <div v-if="displayContent" class="stream-text" v-html="renderMarkdownWithLatex(displayContent)"></div>
-            <div v-else class="stream-waiting">
-              <span class="waiting-text">等待AI格式化...</span>
+        <div class="parsing-layout">
+          <div class="parsing-main">
+            <div class="parsing-content">
+              <div class="stream-output">
+                <div v-if="displayContent" class="stream-text" v-html="renderMarkdownWithLatex(displayContent)"></div>
+                <div v-else class="stream-waiting">
+                  <span class="waiting-text">等待AI格式化...</span>
+                </div>
+                <span v-if="parseStage.includes('格式化') && streamBuffer.length > 0" class="cursor-blink">█</span>
+              </div>
             </div>
-            <span v-if="parseStage.includes('格式化') && streamBuffer.length > 0" class="cursor-blink">█</span>
           </div>
         </div>
       </div>
@@ -452,7 +456,7 @@ function goBack() {
         <div class="upload-content">
           <el-upload
             drag
-            accept=".pdf"
+            accept=".pdf,.doc,.docx"
             :auto-upload="false"
             :on-change="handleFileChange"
             :file-list="fileList"
@@ -460,9 +464,9 @@ function goBack() {
             :disabled="uploading || parsing"
           >
             <el-icon class="upload-icon"><upload-filled /></el-icon>
-            <div class="upload-text">拖拽PDF文件到此处，或<em>点击上传</em></div>
+            <div class="upload-text">拖拽文档文件到此处，或<em>点击上传</em></div>
             <template #tip>
-              <div class="upload-tip">仅支持PDF格式</div>
+              <div class="upload-tip">支持 PDF、DOC、DOCX 格式</div>
             </template>
           </el-upload>
           
@@ -832,20 +836,34 @@ function goBack() {
 
 .markdown-content :deep(h1) {
   font-size: 1.8em;
-  margin: 1em 0 0.5em;
+  margin: 1.2em 0 0.6em;
   color: var(--text-primary);
+  font-weight: 700;
+  border-bottom: 2px solid var(--text-accent);
+  padding-bottom: 0.3em;
 }
 
 .markdown-content :deep(h2) {
   font-size: 1.4em;
   margin: 1em 0 0.5em;
   color: var(--text-primary);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.2em;
 }
 
 .markdown-content :deep(h3) {
   font-size: 1.2em;
-  margin: 1em 0 0.5em;
+  margin: 0.8em 0 0.4em;
   color: var(--text-primary);
+  font-weight: 600;
+}
+
+.markdown-content :deep(h4) {
+  font-size: 1.1em;
+  margin: 0.6em 0 0.3em;
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .markdown-content :deep(p) {
@@ -854,23 +872,125 @@ function goBack() {
   color: var(--text-primary);
 }
 
+.markdown-content :deep(ul),
+.markdown-content :deep(ol) {
+  margin: 0.8em 0;
+  padding-left: 1.8em;
+  line-height: 1.8;
+}
+
+.markdown-content :deep(li) {
+  margin: 0.3em 0;
+}
+
+.markdown-content :deep(li)::marker {
+  color: var(--text-accent);
+}
+
+.markdown-content :deep(blockquote) {
+  margin: 1em 0;
+  padding: 0.8em 1.2em;
+  border-left: 4px solid var(--text-accent);
+  background: var(--bg-hover);
+  border-radius: 0 8px 8px 0;
+  color: var(--text-secondary);
+}
+
+.markdown-content :deep(blockquote p) {
+  margin: 0.3em 0;
+}
+
+.markdown-content :deep(strong) {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.markdown-content :deep(em) {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 .markdown-content :deep(code) {
   background: var(--bg-hover);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 0.9em;
+  font-family: 'Consolas', 'Monaco', monospace;
 }
 
 .markdown-content :deep(pre) {
-  background: var(--bg-hover);
+  background: var(--bg-sidebar);
   padding: 16px;
   border-radius: 8px;
   overflow-x: auto;
+  margin: 1em 0;
+  border: 1px solid var(--border-color);
 }
 
 .markdown-content :deep(pre code) {
   background: none;
   padding: 0;
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+
+.markdown-content :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+
+.markdown-content :deep(th),
+.markdown-content :deep(td) {
+  border: 1px solid var(--border-color);
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.markdown-content :deep(th) {
+  background: var(--bg-sidebar);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.markdown-content :deep(tr:nth-child(even)) {
+  background: var(--bg-hover);
+}
+
+.markdown-content :deep(hr) {
+  border: none;
+  height: 1px;
+  background: var(--border-color);
+  margin: 1.5em 0;
+}
+
+.markdown-content :deep(a) {
+  color: var(--text-accent);
+  text-decoration: none;
+}
+
+.markdown-content :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.markdown-content :deep(.katex) {
+  font-size: 1.1em;
+}
+
+.markdown-content :deep(.katex-display) {
+  margin: 1.2em 0;
+  overflow-x: auto;
+  padding: 0.5em 0;
+}
+
+.markdown-content :deep(.katex-display > .katex) {
+  text-align: center;
+}
+
+.markdown-content :deep(img) {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 1em 0;
 }
 
 .empty-content {
@@ -1306,6 +1426,18 @@ function goBack() {
   color: var(--text-secondary);
 }
 
+.parsing-layout {
+  flex: 1;
+  display: flex;
+  gap: 20px;
+  padding: 20px;
+}
+
+.parsing-main {
+  flex: 1;
+  min-width: 0;
+}
+
 .parsing-content {
   flex: 1;
   padding: 24px 10vw;
@@ -1324,25 +1456,162 @@ function goBack() {
 
 .stream-text :deep(h1) {
   font-size: 1.8em;
-  margin: 1em 0 0.5em;
+  margin: 1.2em 0 0.6em;
   color: var(--text-primary);
+  font-weight: 700;
+  border-bottom: 2px solid var(--text-accent);
+  padding-bottom: 0.3em;
 }
 
 .stream-text :deep(h2) {
   font-size: 1.4em;
   margin: 1em 0 0.5em;
   color: var(--text-primary);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.2em;
 }
 
 .stream-text :deep(h3) {
   font-size: 1.2em;
-  margin: 1em 0 0.5em;
+  margin: 0.8em 0 0.4em;
   color: var(--text-primary);
+  font-weight: 600;
+}
+
+.stream-text :deep(h4) {
+  font-size: 1.1em;
+  margin: 0.6em 0 0.3em;
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .stream-text :deep(p) {
   margin: 0.8em 0;
   line-height: 1.8;
+  color: var(--text-primary);
+}
+
+.stream-text :deep(ul),
+.stream-text :deep(ol) {
+  margin: 0.8em 0;
+  padding-left: 1.8em;
+  line-height: 1.8;
+}
+
+.stream-text :deep(li) {
+  margin: 0.3em 0;
+}
+
+.stream-text :deep(li)::marker {
+  color: var(--text-accent);
+}
+
+.stream-text :deep(blockquote) {
+  margin: 1em 0;
+  padding: 0.8em 1.2em;
+  border-left: 4px solid var(--text-accent);
+  background: var(--bg-hover);
+  border-radius: 0 8px 8px 0;
+  color: var(--text-secondary);
+}
+
+.stream-text :deep(blockquote p) {
+  margin: 0.3em 0;
+}
+
+.stream-text :deep(strong) {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.stream-text :deep(em) {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.stream-text :deep(code) {
+  background: var(--bg-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.stream-text :deep(pre) {
+  background: var(--bg-sidebar);
+  padding: 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 1em 0;
+  border: 1px solid var(--border-color);
+}
+
+.stream-text :deep(pre code) {
+  background: none;
+  padding: 0;
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+
+.stream-text :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+
+.stream-text :deep(th),
+.stream-text :deep(td) {
+  border: 1px solid var(--border-color);
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.stream-text :deep(th) {
+  background: var(--bg-sidebar);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stream-text :deep(tr:nth-child(even)) {
+  background: var(--bg-hover);
+}
+
+.stream-text :deep(hr) {
+  border: none;
+  height: 1px;
+  background: var(--border-color);
+  margin: 1.5em 0;
+}
+
+.stream-text :deep(a) {
+  color: var(--text-accent);
+  text-decoration: none;
+}
+
+.stream-text :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.stream-text :deep(.katex) {
+  font-size: 1.1em;
+}
+
+.stream-text :deep(.katex-display) {
+  margin: 1.2em 0;
+  overflow-x: auto;
+  padding: 0.5em 0;
+}
+
+.stream-text :deep(.katex-display > .katex) {
+  text-align: center;
+}
+
+.stream-text :deep(img) {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 1em 0;
+  display: block;
 }
 
 .stream-waiting {

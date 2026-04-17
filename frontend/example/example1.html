@@ -1,0 +1,227 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { BookOpen, PenTool, Maximize2, Minimize2, Moon, Sun, ChevronRight, Hash, Tag, MessageSquare } from 'lucide-react';
+
+
+// --- 数据准备：将上传的 PDF 内容转化为含有 LaTeX 的 Markdown 块 ---
+const initialBlocks = [
+  {
+    id: "ch5-title",
+    type: "header",
+    content: "## 第5章 线性空间与线性相关性习题",
+    note: "本章核心：理解线性空间的八条公理，以及向量组的线性表示与秩的概念。",
+    tags: ["章节概览"]
+  },
+  {
+    id: "q1",
+    type: "exercise",
+    content: "**1.** 考虑集合 $V=\\left\\{ \\begin{pmatrix} a \\\\ b \\end{pmatrix}, a,b \\in \\mathbb{R} \\right\\},$ 在集合 $V$ 上定义如下的加法和数乘运算：\n\n加法运算：$\\begin{pmatrix} a_1 \\\\ b_1 \\end{pmatrix} \\oplus \\begin{pmatrix} a_2 \\\\ b_2 \\end{pmatrix} = \\begin{pmatrix} a_1+a_2 \\\\ b_1+b_2+a_1 a_2 \\end{pmatrix}$\n\n数乘运算：$k \\odot \\begin{pmatrix} a \\\\ b \\end{pmatrix} = \\begin{pmatrix} ka \\\\ kb+k(k-1)a^2/2 \\end{pmatrix}, k \\in \\mathbb{R}$\n\n则集合 $V$ 关于上述两种运算是否构成实数域上的线性空间？",
+    note: "💡 **注意这道题的陷阱**：\n加法定义中出现了非线性的交叉项 $a_1 a_2$。\n验证时重点看分配律 $(k+l)\\alpha = k\\alpha + l\\alpha$ 是否成立。直觉上二次项展开会多出项来，大概率不构成。",
+    tags: ["概念验证", "易错题"]
+  },
+  {
+    id: "q2",
+    type: "exercise",
+    content: "**2.** 考虑正弦函数的集合 $S(x)=\\{s=a \\cdot \\sin(x+b), a,b \\in \\mathbb{R}\\}$, 对于通常的实函数加法和数乘运算是否构成 $\\mathbb{R}$ 上的线性空间？",
+    note: "利用三角和差化积公式展开：$a\\sin(x+b) = a\\cos(b)\\sin(x) + a\\sin(b)\\cos(x)$。\n实质上是由 $\\sin(x)$ 和 $\\cos(x)$ 张成的二维空间，所以是线性空间。",
+    tags: ["函数空间"]
+  },
+  {
+    id: "q4",
+    type: "exercise",
+    content: "**4. 判断下列命题是否正确,若正确给予证明,若不正确给出反例:**\n\n(1) 若非零向量组 $\\alpha_1, \\alpha_2, \\dots, \\alpha_m$ 中任何一个都不能由其余的向量线性表示，则该向量组一定线性无关。\n\n(2) 若向量组 $\\alpha_1, \\alpha_2, \\dots, \\alpha_m$ 线性相关，则 $\\alpha_1$ 可由 $\\alpha_2, \\dots, \\alpha_m$ 线性表示。\n\n(3) 若向量组 $\\alpha_1, \\alpha_2, \\alpha_3$ 线性无关，而 $\\beta_1$ 可由其线性表示，$\\beta_2$ 不能由其线性表示，则 $\\alpha_1, \\alpha_2, \\alpha_3, \\beta_1+\\beta_2$ 一定线性无关。",
+    note: "📝 **逐个击破**：\n(1) 正确。这是线性无关的等价定义。\n(2) **错误**。反例：$(0,0), (1,0)$ 线性相关，但 $(1,0)$ 不能由 $(0,0)$ 表示。\n(3) 正确。反证法构建线性组合即可得出矛盾。",
+    tags: ["判断题", "证明"]
+  },
+  {
+    id: "q5",
+    type: "exercise",
+    content: "**5. (2)** 当参数 $t$ 分别取何值时，向量组 $\\alpha_1, \\alpha_2, \\alpha_3$ 线性相关与线性无关，并在相关时求其极大无关组：\n\n$$\\alpha_1=\\begin{pmatrix} 1 \\\\ -1 \\\\ 1 \\end{pmatrix}, \\alpha_2=\\begin{pmatrix} t \\\\ 2 \\\\ 1 \\end{pmatrix}, \\alpha_3=\\begin{pmatrix} 2 \\\\ t \\\\ 0 \\end{pmatrix}$$",
+    note: "计算行列式 $|A| = |\\alpha_1, \\alpha_2, \\alpha_3|$：\n按第三行展开，或者直接化简。令 $|A| = 0$ 找到临界点 $t$。",
+    tags: ["计算", "极大无关组"]
+  },
+  {
+    id: "q6",
+    type: "exercise",
+    content: "**6. 证明关于秩的以下不等式:**\n\n(2) 若矩阵 $C=AB$，则有: $\\text{Rank}(C) \\le \\min\\{\\text{Rank}(A), \\text{Rank}(B)\\}$.\n\n(3) 对任意同阶矩阵 $A,B$，总有: $\\max\\{\\text{Rank}(A), \\text{Rank}(B)\\} \\le \\text{Rank}(A \\vdots B) \\le \\text{Rank}(A)+\\text{Rank}(B)$\n$\\text{Rank}(A+B) \\le \\text{Rank}(A \\vdots B)$",
+    note: "🌟 **核心不等式链**！\n(2) 的证明思路：$AB$ 的列向量是 $A$ 的列向量的线性组合，所以秩不超过 $A$。同理行向量。",
+    tags: ["重要定理", "矩阵秩"]
+  }
+];
+
+export default function App() {
+  const [blocks, setBlocks] = useState(initialBlocks);
+  const [isFocusMode, setIsFocusMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [activeBlock, setActiveBlock] = useState(null);
+  const [expandedNotes, setExpandedNotes] = useState({});
+  const contentRef = useRef(null);
+
+  const toggleNote = (id) => {
+    setExpandedNotes(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // 动态加载并触发 MathJax 渲染 LaTeX
+  useEffect(() => {
+    const renderMath = () => {
+      if (window.MathJax) {
+        window.MathJax.typesetPromise(contentRef.current ? [contentRef.current] : [])
+          .catch((err) => console.log('MathJax error:', err));
+      }
+    };
+
+    if (!window.MathJax) {
+      const script = document.createElement('script');
+      script.src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js";
+      script.async = true;
+      script.onload = () => {
+        window.MathJax.config = {
+          tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] }
+        };
+        renderMath();
+      };
+      document.body.appendChild(script);
+    } else {
+      renderMath();
+    }
+  }, [blocks, isFocusMode]); // 每次布局或内容变化时重新渲染数学公式
+
+  // 颜色主题系统 (融合了“流式知识河”的深海蓝与荧光青配色)
+  const theme = isDarkMode 
+    ? { bg: 'bg-[#0B1320]', text: 'text-[#F1F5F9]', accent: 'text-[#00D4B2]', border: 'border-[#1C273A]', noteBg: 'bg-[#111A29]', noteText: 'text-[#94A3B8]', highlight: 'bg-[#1A2638]', card: 'bg-[#0E1624]' }
+    : { bg: 'bg-[#F4F1EA]', text: 'text-[#2C2A29]', accent: 'text-rose-700', border: 'border-[#EAE5D9]', noteBg: 'bg-[#FDFCF9]', noteText: 'text-[#5A554E]', highlight: 'bg-[#EAE4D8]', card: 'bg-[#FFFFFF]' };
+
+  // 处理文本中的简单 Markdown 加粗 (使用主题强调色)
+  const renderMarkdown = (text) => {
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, index) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={index} className={`font-bold ${theme.accent}`}>{part.slice(2, -2)}</strong>;
+      }
+      return <span key={index}>{part}</span>;
+    });
+  };
+
+  const handleNoteChange = (id, newNote) => {
+    setBlocks(blocks.map(b => b.id === id ? { ...b, note: newNote } : b));
+  };
+
+  return (
+    <div className={`min-h-screen ${theme.bg} ${theme.text} font-sans transition-colors duration-500`}>
+      {/* 顶部导航栏 */}
+      <nav className={`sticky top-0 z-50 flex items-center justify-between px-6 py-4 border-b ${theme.border} backdrop-blur-md bg-opacity-80`}>
+        <div className="flex items-center space-x-3">
+          <BookOpen className={`w-5 h-5 ${theme.accent}`} />
+          <h1 className="text-lg font-medium tracking-wider font-serif">Linear Algebra <span className="italic opacity-70">Musings</span></h1>
+        </div>
+        <div className="flex items-center space-x-4">
+          <button 
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            className={`p-2 rounded-full hover:${theme.highlight} transition-colors`}
+            title="切换主题"
+          >
+            {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
+          <button 
+            onClick={() => setIsFocusMode(!isFocusMode)}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-full text-sm transition-colors border ${theme.border} hover:${theme.highlight}`}
+          >
+            {isFocusMode ? (
+              <><Minimize2 className="w-4 h-4" /> <span>显示笔记</span></>
+            ) : (
+              <><Maximize2 className="w-4 h-4" /> <span>专注阅读</span></>
+            )}
+          </button>
+        </div>
+      </nav>
+
+      {/* 主体内容区域 */}
+      <main ref={contentRef} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 flex justify-center">
+        <div className="w-full space-y-12">
+          
+          {blocks.map((block, index) => (
+            <div 
+              key={block.id} 
+              className={`relative group transition-opacity`}
+              onMouseEnter={() => setActiveBlock(block.id)}
+            >
+              {/* 章节标题样式 */}
+              {block.type === 'header' ? (
+                <div className={`text-center mb-8 pb-12 border-b ${isDarkMode ? 'border-[#00D4B2]/30' : 'border-rose-700/20'}`}>
+                  <h2 className="text-3xl font-bold font-serif inline-block">
+                    {renderMarkdown(block.content.replace('## ', ''))}
+                  </h2>
+                  {block.note && <p className={`mt-4 text-sm opacity-70 max-w-2xl mx-auto ${theme.accent}`}>{block.note}</p>}
+                </div>
+              ) : (
+                /* 习题与解答区块：卡片化 + 左右并排 (对比模式) */
+                <div className={`flex flex-col lg:flex-row gap-6 lg:gap-10 pb-16 ${index !== blocks.length - 1 ? 'border-b border-dashed ' + theme.border : ''}`}>
+                  
+                  {/* 左侧：题目卡片 */}
+                  <div className={`${isFocusMode ? 'w-full max-w-3xl mx-auto' : 'lg:w-1/2'} transition-all duration-500`}>
+                    <div className={`p-8 rounded-2xl ${theme.card} shadow-sm border ${theme.border} relative hover:shadow-md transition-shadow`}>
+                      
+                      <div className="text-[1.05rem] leading-[2.2rem] font-serif whitespace-pre-wrap">
+                        {renderMarkdown(block.content)}
+                      </div>
+                      
+                      {/* 专注模式下的折叠笔记按钮 */}
+                      {isFocusMode && (
+                        <div className={`mt-6 pt-4 border-t border-dashed ${theme.border}`}>
+                          <button 
+                            onClick={() => toggleNote(block.id)} 
+                            className={`flex items-center space-x-2 text-sm ${theme.accent} hover:opacity-70 transition-opacity`}
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                            <span>{expandedNotes[block.id] ? '隐藏解答' : '查看思考与解答'}</span>
+                          </button>
+                          
+                          {/* 展开的笔记区域 */}
+                          {expandedNotes[block.id] && (
+                            <div className={`mt-4 p-5 rounded-xl ${theme.noteBg} border ${theme.border} text-[0.95rem] leading-relaxed whitespace-pre-wrap text-left`}>
+                              {block.note || "暂无笔记留存..."}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 右侧：解析笔记区 (仅在对比模式下显示) */}
+                  {!isFocusMode && (
+                    <div className="lg:w-1/2 flex flex-col">
+                      <div className={`flex-1 p-6 rounded-2xl ${theme.noteBg} border ${theme.border} shadow-inner flex flex-col transition-all duration-300 ${activeBlock === block.id ? 'opacity-100 translate-y-0' : 'opacity-60 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}`}>
+                        
+                        <div className={`flex items-center justify-between mb-4 pb-3 border-b ${theme.border}`}>
+                          <div className="flex items-center space-x-2 font-medium opacity-80">
+                            <PenTool className={`w-4 h-4 ${theme.accent}`} />
+                            <span className="font-serif tracking-wide">解析与手记</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {block.tags?.map(tag => (
+                              <span key={tag} className={`text-xs px-2 py-1 rounded-md ${theme.bg} ${theme.accent} border ${theme.border} flex items-center space-x-1 shadow-sm`}>
+                                <Tag className="w-3 h-3" />
+                                <span>{tag}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        
+                        <textarea
+                          className={`w-full flex-1 bg-transparent resize-none focus:outline-none ${theme.noteText} text-[0.95rem] leading-[1.8rem] font-sans`}
+                          value={block.note}
+                          onChange={(e) => handleNoteChange(block.id, e.target.value)}
+                          placeholder="在这里记录推导过程或重要思考..."
+                        />
+                        
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </main>
+    </div>
+  );
+}

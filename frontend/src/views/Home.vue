@@ -100,7 +100,7 @@ async function continueReading(sessionId: string) {
             <el-card header="上传新文档" class="upload-card">
               <el-upload
                 drag
-                accept=".pdf"
+                accept=".pdf,.doc,.docx"
                 :auto-upload="false"
                 :on-change="handleFileChange"
                 :file-list="fileList"
@@ -109,10 +109,10 @@ async function continueReading(sessionId: string) {
               >
                 <el-icon class="el-icon--upload"><upload-filled /></el-icon>
                 <div class="el-upload__text">
-                  拖拽PDF文件到此处，或<em>点击上传</em>
+                  拖拽文档文件到此处，或<em>点击上传</em>
                 </div>
                 <template #tip>
-                  <div class="el-upload__tip">仅支持PDF格式文件</div>
+                  <div class="el-upload__tip">支持 PDF、DOC、DOCX 格式文件</div>
                 </template>
               </el-upload>
               

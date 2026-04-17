@@ -27,6 +27,7 @@ class ContentBlock(BaseModel):
     page: Optional[int] = None
     chapter_path: List[str] = Field(default_factory=list)
     content: str
+    image_path: Optional[str] = None
 
 
 class Document(BaseModel):

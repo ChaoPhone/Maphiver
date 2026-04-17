@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from api import documents, sessions, qa, health, footprints, cards, document_links, export
+from api import documents, sessions, qa, health, footprints, cards, document_links, export, images
 from repositories.database import init_db
 
 init_db()
@@ -29,6 +29,7 @@ app.include_router(footprints.router, prefix="/api/footprints", tags=["footprint
 app.include_router(cards.router, prefix="/api/cards", tags=["cards"])
 app.include_router(document_links.router, prefix="/api", tags=["document-links"])
 app.include_router(export.router, prefix="/api", tags=["export"])
+app.include_router(images.router, prefix="/api/images", tags=["images"])
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

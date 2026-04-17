@@ -1,6 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from datetime import datetime
+from pathlib import Path
 import json
 import aiofiles
 
@@ -24,8 +25,12 @@ router = APIRouter()
 
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document_api(file: UploadFile = File(...)):
-    if not file.filename or not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="仅支持 PDF 文件")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+    
+    ext = Path(file.filename).suffix.lower()
+    if ext not in ['.pdf', '.doc', '.docx']:
+        raise HTTPException(status_code=400, detail="仅支持 PDF、DOC、DOCX 文件")
     
     try:
         file_bytes = await file.read()

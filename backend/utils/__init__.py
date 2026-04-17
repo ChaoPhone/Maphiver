@@ -1,2 +1,2 @@
 from .exceptions import *
-from .pdf_parser import *
+from .document_parser import *

@@ -7,3 +7,4 @@ aiofiles>=23.0.0
 httpx>=0.24.0
 openai>=1.0.0
 pymupdf>=1.23.0
+python-docx>=0.8.11

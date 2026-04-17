@@ -7,13 +7,17 @@ from config import UPLOAD_DIR, MAX_UPLOAD_SIZE_MB
 from models.schemas import Document, ParseResult, ContentBlock, StreamChunk, ChunkType
 from repositories.database import DocumentRepository
 from utils.exceptions import DocumentUploadError, DocumentNotFoundError, ParseError
-from utils.pdf_parser import extract_text_from_pdf
+from utils.document_parser import extract_text_from_document
 from services.ai_service import format_text_with_ai, format_text_stream
 
 
+ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx']
+
+
 def upload_document(file_bytes: bytes, filename: str) -> Document:
-    if not filename.lower().endswith(".pdf"):
-        raise DocumentUploadError("仅支持 PDF 文件")
+    ext = Path(filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise DocumentUploadError(f"仅支持 PDF、DOC、DOCX 文件")
     
     file_size_mb = len(file_bytes) / (1024 * 1024)
     if file_size_mb > MAX_UPLOAD_SIZE_MB:
@@ -48,7 +52,7 @@ def parse_document(document_id: str, use_ai_format: bool = True) -> ParseResult:
         raise DocumentNotFoundError(f"文档 {document_id} 不存在")
     
     try:
-        raw_text, total_pages, blocks = extract_text_from_pdf(document.file_path)
+        raw_text, total_pages, blocks = extract_text_from_document(document.file_path)
         
         if use_ai_format and raw_text.strip():
             formatted_markdown = format_text_with_ai(raw_text)
@@ -81,7 +85,7 @@ def parse_document_stream(document_id: str, use_ai_format: bool = True) -> Gener
     try:
         yield StreamChunk(type=ChunkType.TEXT, content="", metadata={"stage": "extracting"})
         
-        raw_text, total_pages, blocks = extract_text_from_pdf(document.file_path)
+        raw_text, total_pages, blocks = extract_text_from_document(document.file_path)
         
         yield StreamChunk(
             type=ChunkType.TEXT,
