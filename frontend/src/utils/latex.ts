@@ -1,5 +1,6 @@
 const LATEX_NEWLINE_PLACEHOLDER = '%%LATEX_NEWLINE%%'
 const LATEX_DOUBLE_BACKSLASH_PLACEHOLDER = '%%LATEX_DBS%%'
+const LATEX_MATRIX_ROW_PLACEHOLDER = '%%LATEX_MATRIX_ROW%%'
 
 export function safeLatexFormat(rawText: string): string {
   const latexRegex = /(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g
@@ -45,6 +46,18 @@ export function preprocessLatexFormula(formula: string): string {
   return processed
 }
 
+function cleanBlockquoteInFormula(formula: string): string {
+  const lines = formula.split(/\r?\n/)
+  const cleanedLines = lines.map(line => {
+    const trimmed = line.trim()
+    if (trimmed.startsWith('>')) {
+      return trimmed.slice(1).trim()
+    }
+    return trimmed
+  })
+  return cleanedLines.join(' ')
+}
+
 export function extractLatexBlocks(markdown: string): {
   text: string
   blocks: Array<{ placeholder: string; formula: string; display: boolean }>
@@ -53,14 +66,38 @@ export function extractLatexBlocks(markdown: string): {
   
   let text = markdown.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
     const placeholder = `%%LATEX_BLOCK_${blocks.length}%%`
-    const processedFormula = preprocessLatexFormula(formula)
+    const hasMatrix = /\\begin\{(pmatrix|bmatrix|vmatrix|Vmatrix|matrix|array)\}/.test(formula)
+    let processedFormula = formula
+    
+    processedFormula = cleanBlockquoteInFormula(processedFormula)
+    
+    if (hasMatrix) {
+      processedFormula = processedFormula.replace(/\\\\/g, LATEX_MATRIX_ROW_PLACEHOLDER)
+      processedFormula = preprocessLatexFormula(processedFormula)
+      processedFormula = processedFormula.replace(new RegExp(LATEX_MATRIX_ROW_PLACEHOLDER, 'g'), '\\\\')
+    } else {
+      processedFormula = preprocessLatexFormula(processedFormula)
+    }
+    
     blocks.push({ placeholder, formula: processedFormula, display: true })
     return placeholder
   })
   
-  text = text.replace(/\$([^$\n]+?)\$/g, (match, formula) => {
+  text = text.replace(/\$([^$]+?)\$/g, (match, formula) => {
     const placeholder = `%%LATEX_INLINE_${blocks.length}%%`
-    const processedFormula = preprocessLatexFormula(formula)
+    const hasMatrix = /\\begin\{(pmatrix|bmatrix|vmatrix|Vmatrix|matrix|array)\}/.test(formula)
+    let processedFormula = formula
+    
+    processedFormula = cleanBlockquoteInFormula(processedFormula)
+    
+    if (hasMatrix) {
+      processedFormula = processedFormula.replace(/\\\\/g, LATEX_MATRIX_ROW_PLACEHOLDER)
+      processedFormula = preprocessLatexFormula(processedFormula)
+      processedFormula = processedFormula.replace(new RegExp(LATEX_MATRIX_ROW_PLACEHOLDER, 'g'), '\\\\')
+    } else {
+      processedFormula = preprocessLatexFormula(processedFormula)
+    }
+    
     blocks.push({ placeholder, formula: processedFormula, display: false })
     return placeholder
   })
@@ -81,20 +118,20 @@ export function isLatexMatrix(formula: string): boolean {
   return matrixPatterns.some(pattern => pattern.test(formula))
 }
 
-export function validateLatexSyntax(formula: string): { valid: boolean; error?: string } {
+export function validateLatexSyntax(formula: string): string {
   const openBraces = (formula.match(/\{/g) || []).length
   const closeBraces = (formula.match(/\}/g) || []).length
   
   if (openBraces !== closeBraces) {
-    return { valid: false, error: '括号不匹配' }
+    return '括号不匹配'
   }
   
   const beginCommands = (formula.match(/\\begin\{/g) || []).length
   const endCommands = (formula.match(/\\end\{/g) || []).length
   
   if (beginCommands !== endCommands) {
-    return { valid: false, error: 'begin/end 不匹配' }
+    return 'begin/end 不匹配'
   }
   
-  return { valid: true }
+  return ''
 }
