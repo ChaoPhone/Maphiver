@@ -217,7 +217,7 @@ npm run dev
 
 ## 开发文档
 
-详细文档位于 `docs/` 目录：
-- `api-reference.md` - 完整 API 接口文档
-- `changelog/` - 迭代变更记录
-- `plans/` - 迭代计划与任务跟踪
+- `CONTRIBUTING.md` - 贡献规范（分支管理、Issue 规则）
+- `docs/api-reference.md` - 完整 API 接口文档
+- `docs/changelog/` - 迭代变更记录
+- `docs/plans/` - 迭代计划与任务跟踪
