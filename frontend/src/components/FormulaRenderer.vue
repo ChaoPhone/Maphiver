@@ -94,45 +94,16 @@ function handleMouseUp(event: MouseEvent) {
 
 <style scoped>
 .formula-renderer {
-  font-size: var(--font-size-base);
-  line-height: 1.75;
+  /* 不设置 font-size，继承父元素 markdown-content 的样式 */
+  line-height: inherit;
   color: var(--text-primary);
 }
 
-.formula-renderer :deep(h1),
-.formula-renderer :deep(h2),
-.formula-renderer :deep(h3) {
-  color: var(--text-primary);
-  margin-top: 1.5em;
-  margin-bottom: 0.5em;
-}
-
-.formula-renderer :deep(p) {
-  margin-bottom: 1em;
-}
-
-.formula-renderer :deep(pre) {
-  background: var(--bg-hover);
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-}
-
-.formula-renderer :deep(code) {
-  background: var(--bg-hover);
-  padding: 2px 4px;
-  border-radius: 2px;
-}
-
-.formula-renderer :deep(blockquote) {
-  border-left: 4px solid var(--border-color);
-  margin: 0;
-  padding-left: 16px;
-  color: var(--text-secondary);
-}
-
+/* 只保留公式相关样式，其他样式由 markdown.css 全局控制 */
 .formula-renderer :deep(.katex) {
   font-size: 1.1em;
+  /* 公式使用数学字体，不受衬线字体影响 */
+  font-family: KaTeX_Main, 'Times New Roman', serif;
 }
 
 .formula-renderer :deep(.katex-display) {

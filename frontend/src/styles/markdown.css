@@ -44,9 +44,10 @@
 
 .markdown-content p,
 .stream-text p {
-  margin: 0.9em 0;
-  line-height: 1.9;
+  margin: 1em 0;
+  line-height: 2;
   color: var(--text-primary);
+  font-size: 18px;
 }
 
 .stream-content p,
@@ -59,9 +60,10 @@
 .markdown-content ol,
 .stream-text ul,
 .stream-text ol {
-  margin: 0.8em 0;
-  padding-left: 1.8em;
-  line-height: 1.8;
+  margin: 1em 0;
+  padding-left: 2em;
+  line-height: 2;
+  font-size: 18px;
 }
 
 .stream-content ul,
@@ -89,12 +91,14 @@
 
 .markdown-content blockquote,
 .stream-text blockquote {
-  margin: 1em 0;
-  padding: 0.8em 1.2em;
+  margin: 1.2em 0;
+  padding: 1em 1.5em;
   border-left: 4px solid var(--text-accent);
   background: var(--bg-hover);
   border-radius: 0 8px 8px 0;
   color: var(--text-secondary);
+  font-size: 17px;
+  line-height: 1.9;
 }
 
 .stream-content blockquote,
@@ -120,9 +124,10 @@
 .stream-content code,
 .history-answer code {
   background: var(--bg-hover);
-  padding: 2px 6px;
+  padding: 3px 8px;
   border-radius: 4px;
-  font-size: 0.9em;
+  font-size: 0.85em;
+  font-family: var(--font-mono);
 }
 
 .markdown-content pre,

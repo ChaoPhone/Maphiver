@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { ElMessage, ElButton, ElIcon } from 'element-plus'
-import { ChatDotRound, EditPen, Close } from '@element-plus/icons-vue'
+import { ElMessage, ElIcon } from 'element-plus'
+import { ChatDotRound, EditPen } from '@element-plus/icons-vue'
 import FormulaRenderer from './FormulaRenderer.vue'
 import * as api from '@/api'
 
@@ -9,6 +9,7 @@ const props = defineProps<{
   selectedText: string
   sessionId: string
   position: { top: number; right: number }
+  blockId?: string
 }>()
 
 const emit = defineEmits<{
@@ -49,7 +50,7 @@ async function askQuestion(qType?: string) {
       props.sessionId,
       actualQuestion,
       props.selectedText,
-      undefined,
+      props.blockId,
       (chunk: any) => {
         if (chunk.type === 'text') {
           streamingAnswer.value += chunk.content || ''
@@ -107,45 +108,107 @@ async function createCardFromSelection() {
     ElMessage.error(error.message || '创建卡片失败')
   }
 }
+
+// 计算阴影位置（与主卡片同步）
+const shadowStyle1 = computed(() => ({
+  top: (props.position?.top || 0) + 6 + 'px',
+  right: (props.position?.right || 20) - 6 + 'px'
+}))
+
+const shadowStyle2 = computed(() => ({
+  top: (props.position?.top || 0) + 12 + 'px',
+  right: (props.position?.right || 20) - 12 + 'px'
+}))
 </script>
 
 <template>
-  <div v-if="position" class="qa-panel" :style="{ top: (position.top || 0) + 'px', left: (position.left || 0) + 'px' }">
-    <div class="panel-header">
-      <span class="panel-label">已选中 {{ selectedText.length }} 字</span>
-      <el-button size="small" text :icon="Close" @click="emit('close')" />
+  <!-- 错位阴影卡片 - 与主卡片同步 -->
+  <div class="qa-panel-shadow" :style="shadowStyle1"></div>
+  <div class="qa-panel-shadow second" :style="shadowStyle2"></div>
+  
+  <!-- 主卡片 -->
+  <div v-if="position" class="qa-panel" :style="{ top: (position.top || 0) + 'px', right: (position.right || 20) + 'px' }">
+    <!-- 折页关闭按钮 -->
+    <div class="fold-corner" @click="emit('close')">
+      <div class="fold-paper"></div>
+      <div class="fold-x">
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.5"/>
+          <line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.5"/>
+        </svg>
+      </div>
     </div>
     
-    <div class="panel-context">
-      <span class="context-quote">{{ selectedText.slice(0, 100) }}{{ selectedText.length > 100 ? '...' : '' }}</span>
-    </div>
+    <!-- 选中文本 - 引用格式 -->
+    <blockquote class="context-quote">
+      {{ selectedText.slice(0, 150) }}{{ selectedText.length > 150 ? '...' : '' }}
+    </blockquote>
     
+    <!-- 快捷问题 - 下划线滑动样式 -->
     <div class="quick-actions">
-      <el-button 
+      <span 
         v-for="q in quickQuestions" 
         :key="q.type"
-        size="small"
-        round
-        @click="askQuestion(q.type)"
-        :disabled="answering"
+        class="action-link"
+        :class="{ disabled: answering }"
+        @click="!answering && askQuestion(q.type)"
       >
-        {{ q.label }}
-      </el-button>
+        <span class="link-text">{{ q.label }}</span>
+        <span class="link-underline"></span>
+      </span>
     </div>
 
+    <!-- 自定义问题输入 -->
     <div class="question-composer">
-      <input
-        v-model="question"
-        type="text"
-        placeholder="补一句深挖..."
-        class="question-input"
-        @keyup.enter="askQuestion()"
-      />
-      <el-button size="small" type="primary" plain :disabled="answering || !selectedText" @click="askQuestion()">提问</el-button>
+      <div class="input-wrapper" :class="{ focused: question.length > 0 }">
+        <input
+          v-model="question"
+          type="text"
+          placeholder="追问..."
+          class="question-input"
+          @keyup.enter="askQuestion()"
+        />
+        <span class="input-underline"></span>
+      </div>
+      <span 
+        class="action-link primary"
+        :class="{ disabled: answering || !selectedText }"
+        @click="!answering && selectedText && askQuestion()"
+      >
+        <span class="link-text">{{ answering ? '思考中' : '提问' }}</span>
+        <span class="link-underline"></span>
+      </span>
     </div>
     
+    <!-- AI 回复区域 -->
+    <div v-if="streamingAnswer" class="stream-area">
+      <div class="stream-answer">
+        <FormulaRenderer :content="streamingAnswer" />
+      </div>
+      <div v-if="answering" class="stream-loading">
+        <el-icon class="is-loading"><ChatDotRound /></el-icon>
+        <span>正在展开...</span>
+      </div>
+      <div v-if="!answering && streamingAnswer" class="stream-actions">
+        <span class="action-link" @click="createCardFromSelection">
+          <el-icon><EditPen /></el-icon>
+          <span class="link-text">摘录</span>
+          <span class="link-underline"></span>
+        </span>
+      </div>
+    </div>
+    
+    <!-- 摘录卡片入口 - 图标 + hover展开文字 -->
+    <div v-else class="excerpt-entry">
+      <span class="excerpt-expand" @click="showCardAnnotationInput">
+        <el-icon class="excerpt-icon"><EditPen /></el-icon>
+        <span class="excerpt-text">摘录为卡片</span>
+      </span>
+    </div>
+    
+    <!-- 批注输入 -->
     <div v-if="showCardInput" class="card-input-area">
-      <div class="card-input-field">
+      <div class="input-wrapper" :class="{ focused: cardAnnotation.length > 0 }">
         <input 
           v-model="cardAnnotation"
           type="text"
@@ -155,57 +218,81 @@ async function createCardFromSelection() {
           @keyup.escape="cancelCardCreation"
           :disabled="cardCreating"
         />
+        <span class="input-underline"></span>
       </div>
       <div v-if="cardSuccess" class="card-success">
-        <span class="success-icon">✓</span>
-        <span class="success-text">已汇入知识河</span>
+        已汇入知识河
       </div>
       <div v-else class="card-input-actions">
-        <el-button size="small" text @click="cancelCardCreation">取消</el-button>
-        <el-button size="small" type="primary" :loading="cardCreating" @click="createCardWithAnnotation">保存</el-button>
+        <span class="action-link muted" @click="cancelCardCreation">
+          <span class="link-text">取消</span>
+          <span class="link-underline"></span>
+        </span>
+        <span 
+          class="action-link primary"
+          :class="{ disabled: cardCreating }"
+          @click="!cardCreating && createCardWithAnnotation()"
+        >
+          <span class="link-text">{{ cardCreating ? '保存中' : '保存' }}</span>
+          <span class="link-underline"></span>
+        </span>
       </div>
-    </div>
-    
-    <div v-if="streamingAnswer" class="stream-area">
-      <div class="stream-label">AI 回复</div>
-      <FormulaRenderer :content="streamingAnswer" />
-      <div v-if="answering" class="stream-loading">
-        <el-icon class="is-loading"><ChatDotRound /></el-icon>
-        <span>正在展开解释...</span>
-      </div>
-      <div v-if="!answering && streamingAnswer" class="stream-actions">
-        <el-button size="small" text :icon="EditPen" @click="createCardFromSelection">
-          摘录为卡片
-        </el-button>
-      </div>
-    </div>
-    
-    <div v-else class="panel-actions">
-      <el-button size="small" :icon="EditPen" @click="showCardAnnotationInput">摘录卡片</el-button>
     </div>
   </div>
 </template>
 
 <style scoped>
-.qa-panel {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 20px;
-  position: absolute;
-  left: 0;
-  width: 380px;
-  z-index: 100;
-  box-shadow: var(--shadow-md);
-  max-height: 80vh;
-  min-height: 200px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  transition: top 0.3s cubic-bezier(0.4, 0, 0.2, 1), left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+/* 错位阴影卡片 - 与主卡片同步动态 */
+.qa-panel-shadow {
+  position: fixed;
+  width: 360px;
+  background: var(--bg-sidebar);
+  border-radius: 12px;
+  z-index: 999;
+  opacity: 0.6;
+  pointer-events: none;
+  transition: top 0.3s cubic-bezier(0.4, 0, 0.2, 1), right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.qa-panel-shadow.second {
+  opacity: 0.3;
+  z-index: 998;
+}
+
+/* 主卡片 - 渐入渐出 */
+.qa-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 24px;
+  padding-top: 32px;
+  position: fixed;
+  width: 360px;
+  z-index: 1000;
+  max-height: 65vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  font-family: var(--font-serif);
+  
+  /* 渐入渐出动画 */
+  animation: panel-enter 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: top 0.3s cubic-bezier(0.4, 0, 0.2, 1), right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes panel-enter {
+  from {
+    opacity: 0;
+    transform: translateX(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+/* 离开动画由父组件的 transition 控制 */
 .qa-panel::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 
 .qa-panel::-webkit-scrollbar-track {
@@ -217,132 +304,290 @@ async function createCardFromSelection() {
   border-radius: 3px;
 }
 
-.qa-panel::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+/* 折页关闭按钮 - 卷起、变色、显示X */
+.fold-corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 36px;
+  height: 36px;
+  cursor: pointer;
+  overflow: visible;
 }
 
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
+.fold-paper {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, var(--bg-card) 50%, var(--bg-hover) 50%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin: top right;
 }
 
-.panel-label {
-  font-size: var(--font-size-base);
+.fold-x {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  color: transparent;
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* hover: 卷起 + 变主题色 + 显示X */
+.fold-corner:hover .fold-paper {
+  background: linear-gradient(135deg, var(--bg-card) 50%, var(--text-accent) 50%);
+  transform: rotate(-15deg) scale(1.1);
+  clip-path: polygon(0 0, 100% 0, 100% 80%, 80% 100%);
+}
+
+.fold-corner:hover .fold-x {
   color: var(--text-accent);
-  font-weight: 600;
+  opacity: 1;
+  transform: translate(2px, 2px);
 }
 
-.panel-context {
-  margin-bottom: 16px;
-}
-
+/* 选中文本 - markdown 引用格式 */
 .context-quote {
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  background: var(--bg-hover);
+  margin: 0 0 20px 0;
   padding: 12px 16px;
-  border-radius: 8px;
-  display: block;
-  line-height: 1.6;
-  border-left: 3px solid var(--text-accent);
+  border-left: 4px solid var(--text-accent);
+  background: var(--bg-note);
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.8;
+  font-style: italic;
 }
 
-.quick-actions {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-
-.question-composer {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.question-input {
-  flex: 1;
-  padding: 10px 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: var(--font-size-base);
-  background: var(--bg-main);
-  color: var(--text-primary);
-  transition: all 0.2s;
-}
-
-.question-input:focus {
-  outline: none;
-  border-color: var(--text-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-accent) 20%, transparent);
-}
-
-.card-input-area {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border-light);
-}
-
-.annotation-input {
-  width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: var(--font-size-base);
-  background: var(--bg-main);
-  color: var(--text-primary);
-}
-
-.annotation-input:focus {
-  outline: none;
-  border-color: var(--text-accent);
-}
-
-.card-success {
-  display: flex;
+/* 下划线滑动按钮 */
+.action-link {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  color: var(--success-color);
+  gap: 4px;
+  padding: 4px 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-family: var(--font-serif);
+  cursor: pointer;
+  position: relative;
+  transition: color 0.2s ease;
+}
+
+.action-link.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.link-text {
+  position: relative;
+  z-index: 1;
+}
+
+/* 下划线 - 从右向左滑动出现 */
+.link-underline {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  height: 1px;
+  background: var(--text-accent);
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.action-link:hover:not(.disabled) {
+  color: var(--text-accent);
+}
+
+.action-link:hover:not(.disabled) .link-underline {
+  width: 100%;
+}
+
+.action-link.primary {
+  color: var(--text-accent);
   font-weight: 500;
 }
 
-.card-input-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 10px;
+.action-link.primary .link-underline {
+  background: var(--text-accent);
 }
 
+.action-link.muted {
+  color: var(--text-muted);
+}
+
+.action-link.muted .link-underline {
+  background: var(--text-secondary);
+}
+
+.action-link.muted:hover:not(.disabled) {
+  color: var(--text-secondary);
+}
+
+/* 快捷问题 */
+.quick-actions {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* 问题输入 - 下划线滑动 */
+.question-composer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.input-wrapper {
+  flex: 1;
+  position: relative;
+}
+
+.question-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  font-size: 15px;
+  font-family: var(--font-serif);
+  background: transparent;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.question-input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.input-underline {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  height: 1px;
+  background: var(--text-accent);
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 输入框有内容或聚焦时下划线滑动 */
+.input-wrapper.focused .input-underline,
+.input-wrapper:focus-within .input-underline {
+  width: 100%;
+}
+
+/* AI 回复 */
 .stream-area {
   margin-top: 20px;
   padding-top: 20px;
   border-top: 1px solid var(--border-light);
 }
 
-.stream-label {
-  font-size: var(--font-size-base);
+.stream-answer {
+  font-size: 16px;
+  line-height: 1.85;
   color: var(--text-primary);
-  margin-bottom: 12px;
-  font-weight: 600;
 }
 
 .stream-loading {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: var(--text-accent);
   margin-top: 12px;
-  font-size: var(--font-size-sm);
+  font-size: 14px;
+  font-style: italic;
 }
 
 .stream-actions {
   margin-top: 16px;
-}
-
-.panel-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+/* 摘录按钮 - 图标 + hover展开文字 */
+.excerpt-entry {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.excerpt-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-family: var(--font-serif);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.excerpt-icon {
+  font-size: 16px;
+  transition: transform 0.2s ease;
+}
+
+.excerpt-text {
+  max-width: 0;
+  opacity: 0;
+  white-space: nowrap;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-left: 0;
+}
+
+.excerpt-expand:hover {
+  color: var(--text-accent);
+  background: color-mix(in srgb, var(--text-accent) 8%, transparent);
+}
+
+.excerpt-expand:hover .excerpt-icon {
+  transform: scale(1.1);
+}
+
+.excerpt-expand:hover .excerpt-text {
+  max-width: 100px;
+  opacity: 1;
+  margin-left: 6px;
+}
+
+/* 批注输入 */
+.card-input-area {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-light);
+}
+
+.annotation-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  font-size: 15px;
+  font-family: var(--font-serif);
+  background: transparent;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.annotation-input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.card-success {
+  margin-top: 12px;
+  color: var(--success-color);
+  font-size: 14px;
+  font-style: italic;
+}
+
+.card-input-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-top: 12px;
 }
 </style>

@@ -2,8 +2,8 @@
 import { ref, onMounted, computed, nextTick, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore, useDocumentStore } from '@/stores'
-import { ElMessage, ElButton } from 'element-plus'
-import { ArrowLeft, Sunny, Moon, FullScreen, Reading } from '@element-plus/icons-vue'
+import { ElMessage, ElButton, ElDialog, ElInput } from 'element-plus'
+import { ArrowLeft, Sunny, Moon, FullScreen, Reading, Edit } from '@element-plus/icons-vue'
 import DocumentUploader from '@/components/DocumentUploader.vue'
 import ParsingProgress from '@/components/ParsingProgress.vue'
 import FormulaRenderer from '@/components/FormulaRenderer.vue'
@@ -40,6 +40,11 @@ const sessionId = computed(() => route.params.sessionId as string)
 const hasDocument = computed(() => !!sessionStore.currentSession?.document_id)
 const qaMessages = computed(() => sessionStore.qaMessages)
 const documentTitle = computed(() => sessionStore.currentSession?.document?.filename || '流式知识河')
+const sessionName = computed(() => sessionStore.currentSession?.name || '未命名会话')
+
+// 会话名称编辑相关
+const showRenameDialog = ref(false)
+const editingSessionName = ref('')
 
 function toggleTheme() {
   isDarkMode.value = !isDarkMode.value
@@ -55,6 +60,25 @@ function toggleFocusMode() {
   isFocusMode.value = !isFocusMode.value
 }
 
+function openRenameDialog() {
+  editingSessionName.value = sessionName.value
+  showRenameDialog.value = true
+}
+
+async function saveSessionName() {
+  if (!editingSessionName.value.trim()) {
+    ElMessage.warning('会话名称不能为空')
+    return
+  }
+  try {
+    await sessionStore.updateSessionName(sessionId.value, editingSessionName.value.trim())
+    ElMessage.success('名称已更新')
+    showRenameDialog.value = false
+  } catch (error: any) {
+    ElMessage.error(error.message || '更新失败')
+  }
+}
+
 onMounted(async () => {
   const savedTheme = localStorage.getItem('maphiver-theme')
   if (savedTheme === 'dark') {
@@ -66,10 +90,12 @@ onMounted(async () => {
     await loadSessionData()
   }
   setupScrollObserver()
+  setupPanelScrollHide()
 })
 
 onUnmounted(() => {
   removeScrollObserver()
+  removePanelScrollHide()
   if (displayTimer) {
     clearInterval(displayTimer)
     displayTimer = null
@@ -97,6 +123,30 @@ function removeScrollObserver() {
   if (scrollObserver) {
     scrollObserver.disconnect()
     scrollObserver = null
+  }
+}
+
+// 滚动时隐藏 QA 面板，避免面板位置与选区脱节
+let scrollHandler: (() => void) | null = null
+
+function setupPanelScrollHide() {
+  const container = scrollContainerRef.value
+  if (container) {
+    scrollHandler = () => {
+      if (showQAPanel.value) {
+        // 页面滚动时隐藏面板，保持用户体验
+        closeQAPanel()
+      }
+    }
+    container.addEventListener('scroll', scrollHandler, { passive: true })
+  }
+}
+
+function removePanelScrollHide() {
+  const container = scrollContainerRef.value
+  if (container && scrollHandler) {
+    container.removeEventListener('scroll', scrollHandler)
+    scrollHandler = null
   }
 }
 
@@ -204,44 +254,28 @@ function handleSelection(text: string, range: { start: number; end: number; rect
 
   // 使用 firstLineRect（如果有的话）来定位到第一行右侧
   const targetRect = range.firstLineRect || range.rect
-  const scrollRect = scrollContainerRef.value?.getBoundingClientRect()
 
-  if (scrollRect && targetRect && targetRect.width > 0 && targetRect.height > 0) {
-    const panelWidth = 400 // QA面板宽度
+  if (targetRect && targetRect.width > 0 && targetRect.height > 0) {
     const panelHeight = 500 // 预估面板高度
-    const gap = 16 // 与文字的间距
-    const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
 
-    // 计算面板左侧位置：选区右侧 + 间距
-    let panelLeft = targetRect.right - scrollRect.left + gap
+    // 水平位置固定在窗口右侧（距右边界 20px）
+    // 竖直方向动态跟随选区
+    let panelTop = targetRect.top - 10 // 稍微对齐选区顶部
 
-    // 如果面板超出右边界，放到选区左侧
-    if (panelLeft + panelWidth > viewportWidth - 20) {
-      panelLeft = targetRect.left - scrollRect.left - panelWidth - gap
+    // 底部边界检测：确保面板在窗口高度范围内
+    if (panelTop + panelHeight > viewportHeight - 20) {
+      panelTop = Math.max(60, viewportHeight - panelHeight - 60)
     }
 
-    // 如果左侧也放不下（屏幕太窄），使用默认右侧位置
-    if (panelLeft < 20) {
-      panelLeft = targetRect.right - scrollRect.left + gap
-    }
-
-    // 计算面板顶部位置：第一行顶部
-    let panelTop = targetRect.top - scrollRect.top - 20
-
-    // 确保不超出底部边界
-    if (panelTop + panelHeight > scrollRect.height - 20) {
-      panelTop = Math.max(20, scrollRect.height - panelHeight - 20)
-    }
-
-    // 确保不超出顶部边界
-    if (panelTop < 20) {
-      panelTop = 20
+    // 顶部边界检测
+    if (panelTop < 60) {
+      panelTop = 60
     }
 
     panelPosition.value = {
       top: panelTop,
-      left: panelLeft,
+      right: 20, // 固定在右侧
     }
 
     showQAPanel.value = true
@@ -264,13 +298,37 @@ function goBack() {
     <nav class="top-nav">
       <div class="nav-left">
         <el-button :icon="ArrowLeft" @click="goBack" text size="small" class="nav-btn" v-if="!isFocusMode"></el-button>
-        <span class="app-title" v-if="!isFocusMode">流式知识河</span>
+      </div>
+      <div class="nav-center" v-if="hasDocument && !isFocusMode">
+        <div class="nav-session-name" @click="openRenameDialog">
+          <span>{{ sessionName }}</span>
+          <el-icon class="edit-icon"><Edit /></el-icon>
+        </div>
       </div>
       <div class="nav-right">
         <el-button :icon="isDarkMode ? Sunny : Moon" @click="toggleTheme" text size="small" class="nav-btn"></el-button>
         <el-button :icon="isFocusMode ? Reading : FullScreen" @click="toggleFocusMode" text size="small" class="nav-btn"></el-button>
       </div>
     </nav>
+
+    <!-- 会话名称编辑对话框 -->
+    <ElDialog
+      v-model="showRenameDialog"
+      title="编辑会话名称"
+      width="400px"
+      :close-on-click-modal="false"
+    >
+      <ElInput
+        v-model="editingSessionName"
+        placeholder="输入会话名称"
+        maxlength="50"
+        show-word-limit
+      />
+      <template #footer>
+        <ElButton @click="showRenameDialog = false">取消</ElButton>
+        <ElButton type="primary" @click="saveSessionName">保存</ElButton>
+      </template>
+    </ElDialog>
 
     <div class="sidebar-trigger" v-if="!isFocusMode && hasDocument" @mouseenter="sidebarHovered = true" @mouseleave="sidebarHovered = false">
       <div class="trigger-bar"></div>
@@ -300,10 +358,6 @@ function goBack() {
         
         <div v-else class="content-wrapper">
           <main class="main-column" ref="contentRef">
-            <div class="doc-header">
-              <span class="doc-title">{{ documentTitle }}</span>
-            </div>
-            
             <div class="breadcrumb-bar" :class="{ 'is-visible': showBreadcrumb && currentChapter }">
               <span class="breadcrumb-text">{{ currentChapter }}</span>
             </div>
@@ -347,6 +401,7 @@ function goBack() {
   width: 100vw;
   overflow: hidden;
   background-color: var(--bg-main);
+  font-family: var(--font-serif);
 }
 
 .top-nav {
@@ -365,12 +420,46 @@ function goBack() {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 100px;
 }
 
-.app-title {
-  font-size: var(--font-size-base);
-  font-weight: 600;
+.nav-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-session-name {
+  font-size: 15px;
+  font-weight: 500;
   color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-session-name:hover {
+  color: var(--text-accent);
+  background: var(--bg-hover);
+}
+
+.nav-session-name .edit-icon {
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.nav-session-name:hover .edit-icon {
+  opacity: 1;
 }
 
 .nav-btn {
@@ -434,18 +523,6 @@ function goBack() {
 
 .maphiver-app.is-focus-mode .qa-column {
   display: none;
-}
-
-.doc-header {
-  padding: 16px 0;
-  border-bottom: 1px solid var(--border-light);
-  margin-bottom: 24px;
-}
-
-.doc-title {
-  font-size: var(--font-size-lg);
-  color: var(--text-primary);
-  font-weight: 500;
 }
 
 .breadcrumb-bar {
