@@ -7,10 +7,11 @@ from repositories.database import SessionRepository, DocumentRepository
 from utils.exceptions import SessionNotFoundError, SessionArchivedError, DocumentNotFoundError
 
 
-def create_session(document_id: str) -> Session:
+def create_session(document_id: str, name: Optional[str] = None) -> Session:
     session = Session(
         id=str(uuid.uuid4()),
         document_id=document_id,
+        name=name,
         status=SessionStatus.DRAFT,
         created_at=datetime.now(),
         updated_at=datetime.now(),
@@ -20,6 +21,27 @@ def create_session(document_id: str) -> Session:
 
 def get_session(session_id: str) -> Optional[Session]:
     return SessionRepository.get(session_id)
+
+
+def update_session(session_id: str, name: Optional[str] = None) -> Session:
+    session = get_session(session_id)
+    if not session:
+        raise SessionNotFoundError(f"Session {session_id} not found")
+    return SessionRepository.update(session_id, name)
+
+
+def update_session_pin_star(session_id: str, is_pinned: Optional[bool] = None, is_starred: Optional[bool] = None) -> Session:
+    session = get_session(session_id)
+    if not session:
+        raise SessionNotFoundError(f"Session {session_id} not found")
+    return SessionRepository.update_pin_star(session_id, is_pinned, is_starred)
+
+
+def delete_session(session_id: str) -> bool:
+    session = get_session(session_id)
+    if not session:
+        raise SessionNotFoundError(f"Session {session_id} not found")
+    return SessionRepository.delete(session_id)
 
 
 def update_session_status(session_id: str, status: SessionStatus) -> Session:

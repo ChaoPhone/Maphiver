@@ -7,6 +7,7 @@ import aiofiles
 
 from models.schemas import (
     DocumentResponse,
+    DocumentContentResponse,
     DocumentUploadResponse,
     ContentBlock,
     ParseProgressChunk,
@@ -51,13 +52,31 @@ async def get_document_api(document_id: str):
     document = get_document(document_id)
     if not document:
         raise HTTPException(status_code=404, detail="文档不存在")
-    
+
     return DocumentResponse(
         id=document.id,
         filename=document.filename,
         file_path=document.file_path,
         page_count=document.page_count,
+        parsed_at=document.parsed_at,
         created_at=document.created_at,
+    )
+
+
+@router.get("/{document_id}/content", response_model=DocumentContentResponse)
+async def get_document_content_api(document_id: str):
+    document = get_document(document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    if not document.parsed_at:
+        raise HTTPException(status_code=400, detail="文档尚未解析")
+
+    return DocumentContentResponse(
+        id=document.id,
+        filename=document.filename,
+        raw_markdown=document.raw_markdown,
+        parsed_at=document.parsed_at,
     )
 
 

@@ -96,7 +96,7 @@ async def get_qa_history_api(session_id: str):
                 id=user_msg.id,
                 session_id=user_msg.session_id,
                 question=user_msg.content,
-                selected_text=user_msg.block_id or "",
+                selected_text=user_msg.context or "",
                 answer=assistant_msg.content,
                 block_id=user_msg.block_id,
                 created_at=user_msg.created_at,

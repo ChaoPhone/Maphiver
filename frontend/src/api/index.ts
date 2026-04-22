@@ -23,6 +23,11 @@ export async function getDocument(id: string): Promise<Document> {
   return response.data
 }
 
+export async function getDocumentContent(id: string): Promise<{ id: string; filename: string; raw_markdown: string; parsed_at: string }> {
+  const response = await api.get(`/documents/${id}/content`)
+  return response.data
+}
+
 export async function deleteDocument(id: string): Promise<void> {
   await api.delete(`/documents/${id}`)
 }
@@ -72,13 +77,30 @@ export async function getSession(id: string): Promise<Session> {
   return response.data
 }
 
+export async function updateSession(id: string, name: string): Promise<Session> {
+  const response = await api.put(`/sessions/${id}`, { name })
+  return response.data
+}
+
+export async function pinStarSession(id: string, isPinned?: boolean, isStarred?: boolean): Promise<Session> {
+  const response = await api.put(`/sessions/${id}/pin-star`, {
+    is_pinned: isPinned,
+    is_starred: isStarred,
+  })
+  return response.data
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  await api.delete(`/sessions/${id}`)
+}
+
 export async function archiveSession(id: string): Promise<Session> {
   const response = await api.put(`/sessions/${id}/archive`)
   return response.data
 }
 
 export async function getSessions(status?: string): Promise<Session[]> {
-  const url = status ? `/sessions/?status=${status}` : '/sessions/'
+  const url = status ? `/sessions/?status=${encodeURIComponent(status)}` : '/sessions/'
   const response = await api.get(url)
   return response.data.sessions
 }

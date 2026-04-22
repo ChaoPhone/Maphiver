@@ -63,8 +63,9 @@ def parse_document(document_id: str, use_ai_format: bool = True) -> ParseResult:
             document_id,
             page_count=total_pages,
             parsed_at=datetime.now(),
+            raw_markdown=formatted_markdown,
         )
-        
+
         return ParseResult(
             document_id=document_id,
             blocks=blocks,
@@ -115,8 +116,9 @@ def parse_document_stream(document_id: str, use_ai_format: bool = True) -> Gener
             document_id,
             page_count=total_pages,
             parsed_at=datetime.now(),
+            raw_markdown=formatted_markdown,
         )
-        
+
         yield StreamChunk(
             type=ChunkType.DONE,
             metadata={

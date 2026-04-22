@@ -1,6 +1,6 @@
 # 流式知识河 (Maphiver)
 
-> **版本：0.1.0** | 2026-04-18
+> **版本：0.2.0** | 2026-04-22
 
 一个以**对话流驱动、注重知识点自然关联与沉淀**的本地化AI学习伴侣。
 
@@ -23,7 +23,7 @@
 | 前端 | Vue 3 + TypeScript + Element Plus + KaTeX + Vite |
 | 后端 | FastAPI (Python) + SQLite |
 | AI | DeepSeek API（流式输出） |
-| PDF解析 | PyMuPDF (fitz) + python-docx |
+| 文件解析 | PyMuPDF (fitz) + python-docx |
 
 ## 项目结构
 
@@ -31,8 +31,15 @@
 Maphiver/
 ├── frontend/               # Vue 3 前端
 │   ├── src/
-│   │   ├── views/          # 页面组件 (Read.vue)
-│   │   ├── components/     # 子组件 (FootprintPanel, CardPanel)
+│   │   ├── views/          # 页面组件 (Home.vue, Read.vue)
+│   │   ├── components/     # 子组件
+│   │   │   ├── DocumentUploader.vue
+│   │   │   ├── FormulaRenderer.vue
+│   │   │   ├── LeftSidebar.vue
+│   │   │   ├── ParsingProgress.vue
+│   │   │   ├── QAHistory.vue
+│   │   │   ├── QAPanel.vue
+│   │   │   └── FootprintPanel.vue
 │   │   ├── stores/         # Pinia 状态管理
 │   │   ├── api/            # API 调用层
 │   │   ├── utils/          # LaTeX 处理工具
@@ -47,6 +54,8 @@ Maphiver/
 │   │   ├── sessions.py     # 会话管理
 │   │   ├── cards.py        # 知识卡片
 │   │   ├── footprints.py   # 学习足迹
+│   │   ├── document_links.py  # 文档关联
+│   │   ├── export.py       # 导出功能
 │   │   └── images.py       # 图片服务
 │   ├── services/           # 业务逻辑层
 │   │   ├── ai_service.py   # DeepSeek 调用
@@ -57,15 +66,17 @@ Maphiver/
 │   ├── repositories/       # SQLite 数据访问
 │   ├── prompts/            # AI 提示词模板
 │   ├── utils/              # 文档解析器
+│   ├── config.py           # 配置文件
 │   ├── data/               # 数据存储目录
 │   │   ├── maphiver.db     # SQLite 数据库
 │   │   ├── uploads/        # 上传文件
 │   │   └── images/         # 提取的图片
+│   ├── main.py
 │   └── requirements.txt
 │
 ├── docs/                   # 项目文档
-│   ├── prd.md              # 产品需求文档
-│   ├── api.md              # API 文档
+│   ├── api-reference.md    # API 接口文档
+│   ├── changelog/          # 变更记录
 │   └── plans/              # 迭代计划
 │
 └── README.md
@@ -120,50 +131,72 @@ npm run dev
 | 流式问答 | 选中文本进行上下文感知问答，逐字渲染 |
 | 知识卡片 | 一键摘录 AI 回答，添加批注保存 |
 | 学习足迹 | 自动记录提问轨迹，生成探索路径 |
-| 历史恢复 | 归档会话可完整恢复 |
+| 会话管理 | 支持置顶、收藏、批量操作，重命名 |
+| 历史恢复 | 归档会话可完整恢复，文档内容缓存避免重复解析 |
 | 主题切换 | 支持浅色/深色主题 |
 | 专注模式 | 隐藏侧边栏，沉浸式阅读 |
+| LaTeX 公式 | 支持行内公式和块级公式渲染（含矩阵） |
+| 文档关联 | 跨文档知识关联与引用 |
 
 ## 数据模型
 
 5 张核心表：
-- `documents` - 文档元数据
-- `sessions` - 会话生命周期（draft/archived）
-- `messages` - 问答记录
-- `knowledge_cards` - 摘录批注
-- `footprints` - 学习足迹
+
+| 表名 | 描述 |
+|------|------|
+| `documents` | 文档元数据（包含解析后的 Markdown 内容） |
+| `sessions` | 会话生命周期（draft/archived，支持置顶/收藏） |
+| `messages` | 问答记录（含选中文本上下文） |
+| `knowledge_cards` | 摘录批注 |
+| `footprints` | 学习足迹 |
 
 ## API 端点
 
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/api/documents/upload` | POST | 上传文档 |
-| `/api/documents/{id}/parse` | GET (SSE) | 流式解析文档 |
-| `/api/qa/ask` | POST (SSE) | 流式问答 |
-| `/api/sessions/` | POST/GET | 会话管理 |
-| `/api/cards/` | POST/GET/PUT/DELETE | 知识卡片 CRUD |
-| `/api/footprints/` | POST/GET | 学习足迹 |
+完整 API 文档请参阅 `docs/api-reference.md`
+
+| 模块 | 端点数 | 主要功能 |
+|------|--------|----------|
+| 健康检查 | 1 | 服务状态 |
+| 文档管理 | 6 | 上传/查询/解析/删除/内容获取 |
+| 会话管理 | 7 | CRUD/置顶/收藏/归档 |
+| 问答系统 | 3 | 提问/历史/快捷问题 |
+| 知识卡片 | 5 | CRUD |
+| 足迹记录 | 2 | 创建/查询 |
+| 文档关联 | 4 | 创建/查询/删除 |
+| 导出功能 | 1 | 导出会话内容 |
+| 图片资源 | 1 | 获取图片文件 |
 
 ## 版本历史
 
+### v0.2.0 (2026-04-22)
+
+**新增功能**：
+- 会话置顶功能（重要会话优先显示）
+- 会话收藏功能（星标标记）
+- 会话批量选中与删除
+- 会话重命名
+- 文档解析内容缓存（避免重复解析）
+- 问答上下文存储（selected_text 保存）
+- 首页布局优化（滚动区域、紧凑设计）
+- QA 面板智能定位（跟随选中文本）
+
 ### v0.1.0 (2026-04-18)
 
-**首次发布**
-
-- ✅ 文档上传与解析（PDF/DOC/DOCX）
-- ✅ AI 流式格式化输出
-- ✅ 划词提问与流式回答
-- ✅ 知识卡片摘录与批注
-- ✅ 学习足迹记录
-- ✅ 会话管理（draft/archived）
-- ✅ 浅色/深色主题切换
-- ✅ 专注模式
-- ✅ LaTeX 公式渲染（含矩阵）
-- ✅ 图片提取与展示
+**首次发布**：
+- 文档上传与解析（PDF/DOC/DOCX）
+- AI 流式格式化输出
+- 划词提问与流式回答
+- 知识卡片摘录与批注
+- 学习足迹记录
+- 会话管理（draft/archived）
+- 浅色/深色主题切换
+- 专注模式
+- LaTeX 公式渲染（含矩阵）
+- 图片提取与展示
 
 ## 开发文档
 
 详细文档位于 `docs/` 目录：
-- `prd.md` - 产品需求文档
-- `api.md` - API 接口文档
+- `api-reference.md` - 完整 API 接口文档
+- `changelog/` - 迭代变更记录
 - `plans/` - 迭代计划与任务跟踪

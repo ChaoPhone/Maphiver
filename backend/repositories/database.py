@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS documents (
     filename TEXT NOT NULL,
     file_path TEXT NOT NULL,
     page_count INTEGER,
+    raw_markdown TEXT,
     parsed_at TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -34,7 +35,10 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     document_id TEXT NOT NULL,
+    name TEXT,
     status TEXT DEFAULT 'draft' CHECK(status IN ('draft', 'archived')),
+    is_pinned INTEGER DEFAULT 0,
+    is_starred INTEGER DEFAULT 0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (document_id) REFERENCES documents(id)
@@ -46,6 +50,7 @@ CREATE TABLE IF NOT EXISTS messages (
     role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
     content TEXT NOT NULL,
     block_id TEXT,
+    context TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
@@ -97,7 +102,37 @@ def init_db():
     Path(DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DATABASE_PATH)
     conn.executescript(CREATE_TABLES_SQL)
-    conn.commit()
+    
+    try:
+        conn.execute("ALTER TABLE sessions ADD COLUMN name TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    
+    try:
+        conn.execute("ALTER TABLE messages ADD COLUMN context TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        conn.execute("ALTER TABLE sessions ADD COLUMN is_pinned INTEGER DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        conn.execute("ALTER TABLE sessions ADD COLUMN is_starred INTEGER DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        conn.execute("ALTER TABLE documents ADD COLUMN raw_markdown TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
     conn.close()
 
 
@@ -152,20 +187,30 @@ class DocumentRepository:
             filename=row["filename"],
             file_path=row["file_path"],
             page_count=row["page_count"],
+            raw_markdown=row["raw_markdown"],
             parsed_at=_parse_datetime(row["parsed_at"]),
             created_at=_parse_datetime(row["created_at"]) or datetime.now(),
         )
 
     @staticmethod
-    def update_parsed(document_id: str, page_count: int, parsed_at: datetime) -> Document:
+    def update_parsed(document_id: str, page_count: int, parsed_at: datetime, raw_markdown: Optional[str] = None) -> Document:
         conn = _get_connection()
-        conn.execute(
-            """
-            UPDATE documents SET page_count = ?, parsed_at = ?
-            WHERE id = ?
-            """,
-            (page_count, parsed_at.isoformat(), document_id),
-        )
+        if raw_markdown:
+            conn.execute(
+                """
+                UPDATE documents SET page_count = ?, parsed_at = ?, raw_markdown = ?
+                WHERE id = ?
+                """,
+                (page_count, parsed_at.isoformat(), raw_markdown, document_id),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE documents SET page_count = ?, parsed_at = ?
+                WHERE id = ?
+                """,
+                (page_count, parsed_at.isoformat(), document_id),
+            )
         conn.commit()
         conn.close()
         return DocumentRepository.get(document_id)
@@ -308,13 +353,16 @@ class SessionRepository:
         now = datetime.now().isoformat()
         conn.execute(
             """
-            INSERT INTO sessions (id, document_id, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO sessions (id, document_id, name, status, is_pinned, is_starred, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session.id,
                 session.document_id,
+                session.name,
                 session.status.value,
+                1 if session.is_pinned else 0,
+                1 if session.is_starred else 0,
                 session.created_at.isoformat() if session.created_at else now,
                 session.updated_at.isoformat() if session.updated_at else now,
             ),
@@ -335,7 +383,10 @@ class SessionRepository:
         return Session(
             id=row["id"],
             document_id=row["document_id"],
+            name=row["name"],
             status=SessionStatus(row["status"]),
+            is_pinned=bool(row["is_pinned"]),
+            is_starred=bool(row["is_starred"]),
             created_at=_parse_datetime(row["created_at"]) or datetime.now(),
             updated_at=_parse_datetime(row["updated_at"]) or datetime.now(),
         )
@@ -355,23 +406,75 @@ class SessionRepository:
         return SessionRepository.get(session_id)
 
     @staticmethod
+    def update(session_id: str, name: Optional[str] = None) -> Session:
+        conn = _get_connection()
+        if name is not None:
+            conn.execute(
+                """
+                UPDATE sessions SET name = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (name, datetime.now().isoformat(), session_id),
+            )
+        conn.commit()
+        conn.close()
+        return SessionRepository.get(session_id)
+
+    @staticmethod
+    def update_pin_star(session_id: str, is_pinned: Optional[bool] = None, is_starred: Optional[bool] = None) -> Session:
+        conn = _get_connection()
+        updates = []
+        params = []
+        if is_pinned is not None:
+            updates.append("is_pinned = ?")
+            params.append(1 if is_pinned else 0)
+        if is_starred is not None:
+            updates.append("is_starred = ?")
+            params.append(1 if is_starred else 0)
+        if updates:
+            updates.append("updated_at = ?")
+            params.append(datetime.now().isoformat())
+            params.append(session_id)
+            conn.execute(
+                f"UPDATE sessions SET {', '.join(updates)} WHERE id = ?",
+                params,
+            )
+            conn.commit()
+        conn.close()
+        return SessionRepository.get(session_id)
+
+    @staticmethod
+    def delete(session_id: str) -> bool:
+        conn = _get_connection()
+        conn.execute("DELETE FROM footprints WHERE session_id = ?", (session_id,))
+        conn.execute("DELETE FROM knowledge_cards WHERE session_id = ?", (session_id,))
+        conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+        conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        conn.close()
+        return True
+
+    @staticmethod
     def list_by_status(status: Optional[SessionStatus] = None) -> List[Session]:
         conn = _get_connection()
         if status:
             rows = conn.execute(
-                "SELECT * FROM sessions WHERE status = ? ORDER BY updated_at DESC",
+                "SELECT * FROM sessions WHERE status = ? ORDER BY is_pinned DESC, updated_at DESC",
                 (status.value,),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM sessions ORDER BY updated_at DESC"
+                "SELECT * FROM sessions ORDER BY is_pinned DESC, updated_at DESC"
             ).fetchall()
         conn.close()
         return [
             Session(
                 id=row["id"],
                 document_id=row["document_id"],
+                name=row["name"],
                 status=SessionStatus(row["status"]),
+                is_pinned=bool(row["is_pinned"]),
+                is_starred=bool(row["is_starred"]),
                 created_at=_parse_datetime(row["created_at"]) or datetime.now(),
                 updated_at=_parse_datetime(row["updated_at"]) or datetime.now(),
             )
@@ -385,8 +488,8 @@ class MessageRepository:
         conn = _get_connection()
         conn.execute(
             """
-            INSERT INTO messages (id, session_id, role, content, block_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (id, session_id, role, content, block_id, context, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 message.id,
@@ -394,6 +497,7 @@ class MessageRepository:
                 message.role.value,
                 message.content,
                 message.block_id,
+                message.context,
                 message.created_at.isoformat() if message.created_at else datetime.now().isoformat(),
             ),
         )
@@ -416,6 +520,7 @@ class MessageRepository:
                 role=MessageRole(row["role"]),
                 content=row["content"],
                 block_id=row["block_id"],
+                context=row["context"],
                 created_at=_parse_datetime(row["created_at"]) or datetime.now(),
             )
             for row in rows

@@ -4,12 +4,17 @@ from datetime import datetime
 from models.schemas import (
     SessionResponse,
     SessionCreateRequest,
+    SessionUpdateRequest,
+    SessionPinStarRequest,
     SessionListResponse,
     DocumentResponse,
 )
 from services.session_service import (
     create_session,
     get_session,
+    update_session,
+    update_session_pin_star,
+    delete_session,
     archive_session,
     list_sessions,
     get_session_with_document,
@@ -31,6 +36,7 @@ async def create_session_api(request: SessionCreateRequest):
     return SessionResponse(
         id=session.id,
         document_id=session.document_id,
+        name=session.name,
         status=session.status,
         created_at=session.created_at,
         updated_at=session.updated_at,
@@ -43,7 +49,7 @@ async def get_session_api(session_id: str):
         data = get_session_with_document(session_id)
         session = data["session"]
         document = data["document"]
-        
+
         doc_response = None
         if document:
             doc_response = DocumentResponse(
@@ -53,15 +59,63 @@ async def get_session_api(session_id: str):
                 page_count=document.page_count,
                 created_at=document.created_at,
             )
-        
+
         return SessionResponse(
             id=session.id,
             document_id=session.document_id,
+            name=session.name,
             status=session.status,
+            is_pinned=session.is_pinned,
+            is_starred=session.is_starred,
             created_at=session.created_at,
             updated_at=session.updated_at,
             document=doc_response,
         )
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+
+@router.put("/{session_id}", response_model=SessionResponse)
+async def update_session_api(session_id: str, request: SessionUpdateRequest):
+    try:
+        session = update_session(session_id, request.name)
+        return SessionResponse(
+            id=session.id,
+            document_id=session.document_id,
+            name=session.name,
+            status=session.status,
+            is_pinned=session.is_pinned,
+            is_starred=session.is_starred,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+        )
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+
+@router.put("/{session_id}/pin-star", response_model=SessionResponse)
+async def pin_star_session_api(session_id: str, request: SessionPinStarRequest):
+    try:
+        session = update_session_pin_star(session_id, request.is_pinned, request.is_starred)
+        return SessionResponse(
+            id=session.id,
+            document_id=session.document_id,
+            name=session.name,
+            status=session.status,
+            is_pinned=session.is_pinned,
+            is_starred=session.is_starred,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+        )
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+
+@router.delete("/{session_id}")
+async def delete_session_api(session_id: str):
+    try:
+        delete_session(session_id)
+        return {"status": "deleted", "session_id": session_id}
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="会话不存在")
 
@@ -73,7 +127,10 @@ async def archive_session_api(session_id: str):
         return SessionResponse(
             id=session.id,
             document_id=session.document_id,
+            name=session.name,
             status=session.status,
+            is_pinned=session.is_pinned,
+            is_starred=session.is_starred,
             created_at=session.created_at,
             updated_at=session.updated_at,
         )
@@ -98,12 +155,27 @@ async def list_sessions_api(status: str = None):
     
     session_responses = []
     for sess in sessions:
+        document = DocumentRepository.get(sess.document_id)
+        doc_response = None
+        if document:
+            doc_response = DocumentResponse(
+                id=document.id,
+                filename=document.filename,
+                file_path=document.file_path,
+                page_count=document.page_count,
+                created_at=document.created_at,
+            )
+        
         session_responses.append(SessionResponse(
             id=sess.id,
             document_id=sess.document_id,
+            name=sess.name,
             status=sess.status,
+            is_pinned=sess.is_pinned,
+            is_starred=sess.is_starred,
             created_at=sess.created_at,
             updated_at=sess.updated_at,
+            document=doc_response,
         ))
     
     return SessionListResponse(

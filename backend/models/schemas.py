@@ -35,6 +35,7 @@ class Document(BaseModel):
     filename: str
     file_path: str
     page_count: Optional[int] = None
+    raw_markdown: Optional[str] = None
     parsed_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.now)
 
@@ -42,7 +43,10 @@ class Document(BaseModel):
 class Session(BaseModel):
     id: str
     document_id: str
+    name: Optional[str] = None
     status: SessionStatus = SessionStatus.DRAFT
+    is_pinned: bool = False
+    is_starred: bool = False
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -53,6 +57,7 @@ class Message(BaseModel):
     role: MessageRole
     content: str
     block_id: Optional[str] = None
+    context: Optional[str] = None  # 存储选中的文本
     created_at: datetime = Field(default_factory=datetime.now)
 
 
@@ -105,7 +110,15 @@ class DocumentResponse(BaseModel):
     filename: str
     file_path: str
     page_count: Optional[int] = None
+    parsed_at: Optional[datetime] = None
     created_at: datetime
+
+
+class DocumentContentResponse(BaseModel):
+    id: str
+    filename: str
+    raw_markdown: Optional[str] = None
+    parsed_at: Optional[datetime] = None
 
 
 class DocumentUploadResponse(BaseModel):
@@ -129,10 +142,22 @@ class ParseProgressChunk(BaseModel):
 class SessionResponse(BaseModel):
     id: str
     document_id: str
+    name: Optional[str] = None
     status: SessionStatus = SessionStatus.DRAFT
+    is_pinned: bool = False
+    is_starred: bool = False
     created_at: datetime
     updated_at: datetime
     document: Optional[DocumentResponse] = None
+
+
+class SessionUpdateRequest(BaseModel):
+    name: Optional[str] = None
+
+
+class SessionPinStarRequest(BaseModel):
+    is_pinned: Optional[bool] = None
+    is_starred: Optional[bool] = None
 
 
 class SessionCreateRequest(BaseModel):

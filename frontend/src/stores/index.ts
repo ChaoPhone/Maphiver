@@ -24,7 +24,7 @@ export const useDocumentStore = defineStore('document', () => {
   async function parseDocument(id: string, onProgress?: (data: any) => void) {
     parseProgress.value = 0
     parseStage.value = 'extracting'
-    
+
     const result = await api.parseDocument(id, (data) => {
       if (onProgress) {
         onProgress(data)
@@ -36,13 +36,25 @@ export const useDocumentStore = defineStore('document', () => {
         parseStage.value = data.stage
       }
     })
-    
+
     blocks.value = result.blocks
     rawMarkdown.value = result.raw_markdown
     parseProgress.value = 100
     parseStage.value = 'done'
-    
+
     return result
+  }
+
+  async function loadParsedContent(id: string) {
+    try {
+      const content = await api.getDocumentContent(id)
+      rawMarkdown.value = content.raw_markdown
+      parseProgress.value = 100
+      parseStage.value = 'done'
+      return content
+    } catch (error) {
+      return null
+    }
   }
   
   async function deleteDocument(id: string) {
@@ -60,6 +72,7 @@ export const useDocumentStore = defineStore('document', () => {
     fetchDocuments,
     uploadFile,
     parseDocument,
+    loadParsedContent,
     deleteDocument,
   }
 })
@@ -82,6 +95,21 @@ export const useSessionStore = defineStore('session', () => {
   async function loadSession(id: string) {
     currentSession.value = await api.getSession(id)
     qaMessages.value = await api.getQAHistory(id)
+  }
+  
+  async function updateSessionName(id: string, name: string) {
+    await api.updateSession(id, name)
+    await fetchSessions()
+  }
+
+  async function pinStarSession(id: string, isPinned?: boolean, isStarred?: boolean) {
+    await api.pinStarSession(id, isPinned, isStarred)
+    await fetchSessions()
+  }
+  
+  async function deleteSession(id: string) {
+    await api.deleteSession(id)
+    await fetchSessions()
   }
   
   async function archiveSession(id: string) {
@@ -144,6 +172,9 @@ export const useSessionStore = defineStore('session', () => {
     fetchSessions,
     createSession,
     loadSession,
+    updateSessionName,
+    pinStarSession,
+    deleteSession,
     archiveSession,
     askQuestion,
     askQuestionStream,

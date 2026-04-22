@@ -17,7 +17,10 @@ export interface Document {
 export interface Session {
   id: string
   document_id: string
+  name?: string
   status: 'draft' | 'archived'
+  is_pinned?: boolean
+  is_starred?: boolean
   created_at: string
   updated_at: string
   document?: Document

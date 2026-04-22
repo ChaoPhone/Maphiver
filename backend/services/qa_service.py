@@ -78,6 +78,7 @@ def ask_question(
         role=MessageRole.USER,
         content=question,
         block_id=block_id,
+        context=selected_text,
         created_at=datetime.now(),
     )
     
