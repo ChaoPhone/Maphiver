@@ -42,7 +42,7 @@ async def ask_question_api(request: AskRequest):
             blocks = []
             if document.parsed_at:
                 from services.document_service import parse_document
-                result = parse_document(document.id, use_ai_format=False)
+                result = parse_document(document.id, use_ai_format=False, update_db=False)
                 blocks = result.blocks
             
             context_text = get_context_blocks(

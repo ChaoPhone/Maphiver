@@ -46,7 +46,7 @@ def upload_document(file_bytes: bytes, filename: str) -> Document:
     return DocumentRepository.create(document)
 
 
-def parse_document(document_id: str, use_ai_format: bool = True) -> ParseResult:
+def parse_document(document_id: str, use_ai_format: bool = True, update_db: bool = True) -> ParseResult:
     document = get_document(document_id)
     if not document:
         raise DocumentNotFoundError(f"文档 {document_id} 不存在")
@@ -59,12 +59,13 @@ def parse_document(document_id: str, use_ai_format: bool = True) -> ParseResult:
         else:
             formatted_markdown = raw_text
         
-        DocumentRepository.update_parsed(
-            document_id,
-            page_count=total_pages,
-            parsed_at=datetime.now(),
-            raw_markdown=formatted_markdown,
-        )
+        if update_db:
+            DocumentRepository.update_parsed(
+                document_id,
+                page_count=total_pages,
+                parsed_at=datetime.now(),
+                raw_markdown=formatted_markdown,
+            )
 
         return ParseResult(
             document_id=document_id,
@@ -97,10 +98,10 @@ def parse_document_stream(document_id: str, use_ai_format: bool = True) -> Gener
         if use_ai_format and raw_text.strip():
             yield StreamChunk(type=ChunkType.TEXT, content="", metadata={"stage": "formatting"})
             
-            formatted_markdown = ""
+            formatted_chunks: List[str] = []
             for chunk in format_text_stream(raw_text):
                 if chunk.type == ChunkType.TEXT:
-                    formatted_markdown += chunk.content or ""
+                    formatted_chunks.append(chunk.content or "")
                     yield StreamChunk(
                         type=ChunkType.TEXT,
                         content=chunk.content,
@@ -110,13 +111,13 @@ def parse_document_stream(document_id: str, use_ai_format: bool = True) -> Gener
                     yield chunk
                     return
         else:
-            formatted_markdown = raw_text
+            formatted_chunks = [raw_text]
         
         DocumentRepository.update_parsed(
             document_id,
             page_count=total_pages,
             parsed_at=datetime.now(),
-            raw_markdown=formatted_markdown,
+            raw_markdown="".join(formatted_chunks),
         )
 
         yield StreamChunk(
@@ -125,7 +126,7 @@ def parse_document_stream(document_id: str, use_ai_format: bool = True) -> Gener
                 "document_id": document_id,
                 "total_pages": total_pages,
                 "blocks": [b.model_dump() for b in blocks],
-                "raw_markdown": formatted_markdown,
+                "raw_markdown": "".join(formatted_chunks),
             }
         )
         

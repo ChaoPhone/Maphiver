@@ -18,9 +18,17 @@ const emit = defineEmits<{
 const renderedHtml = computed(() => {
   if (!props.content) return ''
   
+  // 步骤0: 预处理 - 兼容旧格式占位符
+  // 旧格式: %%LATEX_BLOCK_0%% (块级), %%LATEX_INLINE_1%% (行内)
+  // 新格式: %%LATEXBLOCK0%% (块级), %%LATEXINLINE1%% (行内)
+  // 将旧格式统一转换为新格式，避免 marked 将 _ 解析为斜体
+  let content = props.content
+  content = content.replace(/%%LATEX_BLOCK_(\d+)%%/g, '%%LATEXBLOCK$1%%')
+  content = content.replace(/%%LATEX_INLINE_(\d+)%%/g, '%%LATEXINLINE$1%%')
+  
   // 步骤1: 提取 LaTeX 块并替换为占位符
   // 占位符格式 %%LATEXBLOCK0%% / %%LATEXINLINE0%% 不含 markdown 特殊字符
-  const { text, blocks } = extractLatexBlocks(props.content)
+  const { text, blocks } = extractLatexBlocks(content)
   
   // 步骤2: 用 marked 解析 markdown（占位符会被原样保留）
   let result = marked.parse(text, { breaks: true, gfm: true }) as string
