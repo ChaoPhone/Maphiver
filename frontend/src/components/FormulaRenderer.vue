@@ -4,6 +4,7 @@ import { marked } from 'marked'
 import katex from 'katex'
 import { extractLatexBlocks } from '@/utils/latex'
 
+// 配置 marked：启用 GFM 和换行
 marked.setOptions({ breaks: true, gfm: true })
 
 const props = defineProps<{
@@ -17,10 +18,14 @@ const emit = defineEmits<{
 const renderedHtml = computed(() => {
   if (!props.content) return ''
   
+  // 步骤1: 提取 LaTeX 块并替换为占位符
+  // 占位符格式 %%LATEXBLOCK0%% / %%LATEXINLINE0%% 不含 markdown 特殊字符
   const { text, blocks } = extractLatexBlocks(props.content)
   
+  // 步骤2: 用 marked 解析 markdown（占位符会被原样保留）
   let result = marked.parse(text, { breaks: true, gfm: true }) as string
   
+  // 步骤3: 将占位符替换回 KaTeX 渲染结果
   blocks.forEach(block => {
     try {
       const rendered = katex.renderToString(block.formula, {
@@ -29,15 +34,72 @@ const renderedHtml = computed(() => {
         output: 'html',
         trust: true,
       })
-      result = result.replace(block.placeholder, rendered)
+      result = replacePlaceholder(result, block.placeholder, rendered)
     } catch (e) {
       console.warn('KaTeX render error for:', block.formula, e)
-      result = result.replace(block.placeholder, block.display ? `$$${block.formula}$$` : `$${block.formula}$`)
+      const fallback = block.display
+        ? `<span class="katex-error">$$${escapeHtml(block.formula)}$$</span>`
+        : `<span class="katex-error">$${escapeHtml(block.formula)}$</span>`
+      result = replacePlaceholder(result, block.placeholder, fallback)
     }
   })
   
   return result
 })
+
+/**
+ * 替换占位符：支持多种情况
+ * 1. 占位符被完整保留（最常见）
+ * 2. 占位符被 <p> 标签包裹（块级公式的行内占位符）
+ * 3. 占位符被 HTML 标签分割（防御性兜底）
+ */
+function replacePlaceholder(result: string, placeholder: string, html: string): string {
+  // 情况1：直接替换
+  if (result.includes(placeholder)) {
+    // 使用 while 循环处理同一占位符多次出现的情况
+    while (result.includes(placeholder)) {
+      result = result.replace(placeholder, html)
+    }
+    return result
+  }
+  
+  // 情况2：占位符被 <p> 包裹
+  const escapedPlaceholder = escapeRegex(placeholder)
+  const wrappedPattern = new RegExp(`<p>\\s*${escapedPlaceholder}\\s*</p>`, 'g')
+  if (wrappedPattern.test(result)) {
+    result = result.replace(wrappedPattern, html)
+    return result
+  }
+  
+  // 情况3：占位符被 marked 插入的 HTML 标签分割
+  // 例如 %%LATEXBLOCK<strong>0</strong>%%
+  // 用宽松模式匹配：允许占位符的各部分之间插入 HTML 标签
+  const chars = placeholder.split('')
+  const fuzzyPattern = chars.map(c => {
+    if (/[a-zA-Z0-9%]/.test(c)) {
+      return `(?:<[^>]*>)*${escapeRegex(c)}`
+    }
+    return escapeRegex(c)
+  }).join('')
+  const fuzzyRegex = new RegExp(fuzzyPattern, 'g')
+  result = result.replace(fuzzyRegex, html)
+  
+  return result
+}
+
+// HTML 转义，用于 KaTeX 渲染失败时的回退显示
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+// 正则转义
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
 
 function handleMouseUp(event: MouseEvent) {
   const selection = window.getSelection()
@@ -110,5 +172,15 @@ function handleMouseUp(event: MouseEvent) {
   margin: 1em 0;
   overflow-x: auto;
   overflow-y: hidden;
+}
+
+/* KaTeX 渲染失败的回退样式 */
+.formula-renderer :deep(.katex-error) {
+  color: var(--error-color, #DC2626);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--bg-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 </style>

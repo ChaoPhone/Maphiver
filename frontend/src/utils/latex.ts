@@ -1,6 +1,11 @@
-const LATEX_NEWLINE_PLACEHOLDER = '%%LATEX_NEWLINE%%'
-const LATEX_DOUBLE_BACKSLASH_PLACEHOLDER = '%%LATEX_DBS%%'
 const LATEX_MATRIX_ROW_PLACEHOLDER = '%%LATEX_MATRIX_ROW%%'
+
+// 占位符必须使用不含 markdown 特殊字符的格式
+// 旧格式 %%LATEX_BLOCK_0%% 中的下划线 _ 会被 marked 解析为斜体
+// 新格式 %%LATEXBLOCK0%% 不含任何 markdown 特殊字符，marked 不会干扰
+const BLOCK_PLACEHOLDER_PREFIX = '%%LATEXBLOCK'
+const INLINE_PLACEHOLDER_PREFIX = '%%LATEXINLINE'
+const PLACEHOLDER_SUFFIX = '%%'
 
 export function safeLatexFormat(rawText: string): string {
   const latexRegex = /(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g
@@ -8,9 +13,9 @@ export function safeLatexFormat(rawText: string): string {
   return rawText.replace(latexRegex, (match) => {
     let result = match
     
-    result = result.replace(/\\\\\\\\/g, LATEX_DOUBLE_BACKSLASH_PLACEHOLDER)
+    result = result.replace(/\\\\\\\\/g, '%%LATEX_DBS%%')
     
-    result = result.replace(/\\\\/g, LATEX_NEWLINE_PLACEHOLDER)
+    result = result.replace(/\\\\/g, '%%LATEX_NEWLINE%%')
     
     return result
   })
@@ -19,9 +24,9 @@ export function safeLatexFormat(rawText: string): string {
 export function restoreLatexNewlines(renderedHtml: string): string {
   let result = renderedHtml
   
-  result = result.replace(new RegExp(LATEX_DOUBLE_BACKSLASH_PLACEHOLDER, 'g'), '\\\\\\\\')
+  result = result.replace(/%%LATEX_DBS%%/g, '\\\\\\\\')
   
-  result = result.replace(new RegExp(LATEX_NEWLINE_PLACEHOLDER, 'g'), '\\\\')
+  result = result.replace(/%%LATEX_NEWLINE%%/g, '\\\\')
   
   return result
 }
@@ -30,7 +35,7 @@ export function preprocessLatexFormula(formula: string): string {
   let processed = formula.trim()
   
   const hasMatrix = /\\begin\{(pmatrix|bmatrix|vmatrix|Vmatrix|matrix|array)\}/.test(processed)
-  
+
   if (!hasMatrix) {
     processed = processed.replace(/\r\n|\r|\n/g, ' ')
     processed = processed.replace(/\s+/g, ' ')
@@ -40,7 +45,7 @@ export function preprocessLatexFormula(formula: string): string {
     processed = processed.replace(/\\\\\\\\/g, '\\\\')
     processed = processed.replace(/\\{2,4}/g, '\\\\')
   }
-  
+
   processed = processed.replace(/\\\\\\\\/g, '\\\\')
   
   return processed
@@ -64,8 +69,9 @@ export function extractLatexBlocks(markdown: string): {
 } {
   const blocks: Array<{ placeholder: string; formula: string; display: boolean }> = []
   
+  // 先处理块级公式 $$...$$
   let text = markdown.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
-    const placeholder = `%%LATEX_BLOCK_${blocks.length}%%`
+    const placeholder = `${BLOCK_PLACEHOLDER_PREFIX}${blocks.length}${PLACEHOLDER_SUFFIX}`
     const hasMatrix = /\\begin\{(pmatrix|bmatrix|vmatrix|Vmatrix|matrix|array)\}/.test(formula)
     let processedFormula = formula
     
@@ -83,8 +89,12 @@ export function extractLatexBlocks(markdown: string): {
     return placeholder
   })
   
-  text = text.replace(/\$([^$]+?)\$/g, (match, formula) => {
-    const placeholder = `%%LATEX_INLINE_${blocks.length}%%`
+  // 处理行内公式 $...$
+  // 关键修复：排除 $$ 的情况，并使用更精确的正则
+  // 使用否定后行断言确保不以 $ 开头，否定先行断言确保不以 $ 结尾
+  // 这样可以避免误匹配 $$ 中的内容
+  text = text.replace(/(?<!\$)\$(?!\$)([^\$]+?)\$(?!\$)/g, (match, formula) => {
+    const placeholder = `${INLINE_PLACEHOLDER_PREFIX}${blocks.length}${PLACEHOLDER_SUFFIX}`
     const hasMatrix = /\\begin\{(pmatrix|bmatrix|vmatrix|Vmatrix|matrix|array)\}/.test(formula)
     let processedFormula = formula
     
