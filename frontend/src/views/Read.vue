@@ -97,7 +97,7 @@ onUnmounted(() => {
   removeScrollObserver()
   removePanelScrollHide()
   if (displayTimer) {
-    clearInterval(displayTimer)
+    cancelAnimationFrame(displayTimer)
     displayTimer = null
   }
 })
@@ -204,18 +204,23 @@ async function loadSessionData() {
 }
 
 function startCharByCharDisplay() {
-  if (displayTimer) clearInterval(displayTimer)
-  displayTimer = window.setInterval(() => {
+  if (displayTimer) cancelAnimationFrame(displayTimer)
+
+  function tick() {
     if (streamBuffer.length > 0) {
-      displayContent.value += streamBuffer.charAt(0)
-      streamBuffer = streamBuffer.slice(1)
-    } else if (!parsing.value) {
-      if (displayTimer) {
-        clearInterval(displayTimer)
-        displayTimer = null
-      }
+      const chunkSize = Math.max(1, Math.ceil(streamBuffer.length * 0.3))
+      displayContent.value += streamBuffer.slice(0, chunkSize)
+      streamBuffer = streamBuffer.slice(chunkSize)
     }
-  }, 30)
+
+    if (streamBuffer.length > 0 || parsing.value) {
+      displayTimer = requestAnimationFrame(tick)
+    } else {
+      displayTimer = null
+    }
+  }
+
+  displayTimer = requestAnimationFrame(tick)
 }
 
 async function handleUpload(documentId: string, newSessionId: string) {
@@ -294,7 +299,7 @@ function goBack() {
 </script>
 
 <template>
-  <div class="maphiver-app" :class="{ 'is-focus-mode': isFocusMode }" v-loading="loading">
+  <div class="maphiver-app" :class="{ 'is-focus-mode': isFocusMode }" v-loading="loading && !parsing">
     <nav class="top-nav">
       <div class="nav-left">
         <el-button :icon="ArrowLeft" @click="goBack" text size="small" class="nav-btn" v-if="!isFocusMode"></el-button>
