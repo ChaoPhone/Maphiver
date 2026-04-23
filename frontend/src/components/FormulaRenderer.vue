@@ -50,30 +50,34 @@ const renderedHtml = computed(() => {
 /**
  * 替换占位符：支持多种情况
  * 1. 占位符被完整保留（最常见）
- * 2. 占位符被 <p> 标签包裹（块级公式的行内占位符）
+ * 2. 占位符被 <p> 标签包裹（marked 对块级元素使用 <p> 包裹）
  * 3. 占位符被 HTML 标签分割（防御性兜底）
  */
 function replacePlaceholder(result: string, placeholder: string, html: string): string {
-  // 情况1：直接替换
-  if (result.includes(placeholder)) {
-    // 使用 while 循环处理同一占位符多次出现的情况
-    while (result.includes(placeholder)) {
-      result = result.replace(placeholder, html)
-    }
+  // 情况1：直接替换（最常见）
+  if (result.indexOf(placeholder) !== -1) {
+    result = result.split(placeholder).join(html)
     return result
   }
   
   // 情况2：占位符被 <p> 包裹
+  // marked 会把独立的块级内容包裹在 <p> 标签中
   const escapedPlaceholder = escapeRegex(placeholder)
-  const wrappedPattern = new RegExp(`<p>\\s*${escapedPlaceholder}\\s*</p>`, 'g')
-  if (wrappedPattern.test(result)) {
-    result = result.replace(wrappedPattern, html)
+  const wrappedPattern = `<p>${escapedPlaceholder}</p>`
+  if (result.indexOf(wrappedPattern) !== -1) {
+    result = result.split(wrappedPattern).join(html)
     return result
   }
   
-  // 情况3：占位符被 marked 插入的 HTML 标签分割
-  // 例如 %%LATEXBLOCK<strong>0</strong>%%
-  // 用宽松模式匹配：允许占位符的各部分之间插入 HTML 标签
+  // 情况3：占位符被 <p> 包裹但含空白符
+  const wrappedWithSpace = `<p> ${escapedPlaceholder} </p>`
+  if (result.indexOf(wrappedWithSpace) !== -1) {
+    result = result.split(wrappedWithSpace).join(html)
+    return result
+  }
+  
+  // 情况4：占位符被 HTML 标签分割（防御性兜底）
+  // 例如占位符被嵌套在其他标签中
   const chars = placeholder.split('')
   const fuzzyPattern = chars.map(c => {
     if (/[a-zA-Z0-9%]/.test(c)) {
@@ -81,8 +85,16 @@ function replacePlaceholder(result: string, placeholder: string, html: string): 
     }
     return escapeRegex(c)
   }).join('')
+  
+  // 使用构造函数创建正则，避免 /g 标志带来的 lastIndex 问题
   const fuzzyRegex = new RegExp(fuzzyPattern, 'g')
-  result = result.replace(fuzzyRegex, html)
+  const matches = result.match(fuzzyRegex)
+  if (matches && matches.length > 0) {
+    // 替换所有匹配到的变体
+    matches.forEach(match => {
+      result = result.replace(match, html)
+    })
+  }
   
   return result
 }

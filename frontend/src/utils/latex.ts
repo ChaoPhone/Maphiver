@@ -70,6 +70,7 @@ export function extractLatexBlocks(markdown: string): {
   const blocks: Array<{ placeholder: string; formula: string; display: boolean }> = []
   
   // 先处理块级公式 $$...$$
+  // 替换 $$...$$ 为占位符
   let text = markdown.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
     const placeholder = `${BLOCK_PLACEHOLDER_PREFIX}${blocks.length}${PLACEHOLDER_SUFFIX}`
     const hasMatrix = /\\begin\{(pmatrix|bmatrix|vmatrix|Vmatrix|matrix|array)\}/.test(formula)
@@ -90,10 +91,41 @@ export function extractLatexBlocks(markdown: string): {
   })
   
   // 处理行内公式 $...$
-  // 关键修复：排除 $$ 的情况，并使用更精确的正则
-  // 使用否定后行断言确保不以 $ 开头，否定先行断言确保不以 $ 结尾
-  // 这样可以避免误匹配 $$ 中的内容
-  text = text.replace(/(?<!\$)\$(?!\$)([^\$]+?)\$(?!\$)/g, (match, formula) => {
+  // 使用两步法避免误匹配 $$ 块内的内容：
+  // 1. 先找出所有 $$ 块的位置范围
+  // 2. 再找出所有 $...$ 匹配，排除在 $$ 块内的
+  // 这样完全兼容所有浏览器，不需要负向断言
+  
+  // 找出所有 $$ 块的位置
+  const blockDollarPositions: number[] = []
+  for (const match of text.matchAll(/\$\$/g)) {
+    blockDollarPositions.push(match.index!)
+  }
+  
+  // 配对 $$ 位置，确定块级公式范围
+  const blockRanges: Array<{ start: number; end: number }> = []
+  for (let i = 0; i < blockDollarPositions.length; i += 2) {
+    if (i + 1 < blockDollarPositions.length) {
+      blockRanges.push({
+        start: blockDollarPositions[i],
+        end: blockDollarPositions[i + 1] + 2 // +2 for $$
+      })
+    }
+  }
+  
+  // 找出所有 $...$ 并排除在块级公式内的
+  const inlineMatches: Array<{ match: string; index: number }> = []
+  for (const match of text.matchAll(/\$([^$]+?)\$/g)) {
+    const pos = match.index!
+    const inBlock = blockRanges.some(r => pos >= r.start && pos < r.end)
+    if (!inBlock) {
+      inlineMatches.push({ match: match[0], index: pos })
+    }
+  }
+  
+  // 从后往前替换，避免索引偏移问题
+  inlineMatches.reverse().forEach(({ match, index }) => {
+    const formula = match.slice(1, -1) // 去掉首尾 $
     const placeholder = `${INLINE_PLACEHOLDER_PREFIX}${blocks.length}${PLACEHOLDER_SUFFIX}`
     const hasMatrix = /\\begin\{(pmatrix|bmatrix|vmatrix|Vmatrix|matrix|array)\}/.test(formula)
     let processedFormula = formula
@@ -109,7 +141,9 @@ export function extractLatexBlocks(markdown: string): {
     }
     
     blocks.push({ placeholder, formula: processedFormula, display: false })
-    return placeholder
+    
+    // 替换 text 中的这个 $...$
+    text = text.slice(0, index) + placeholder + text.slice(index + match.length)
   })
   
   return { text, blocks }
