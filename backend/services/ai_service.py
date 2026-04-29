@@ -1,4 +1,5 @@
 from openai import OpenAI
+import httpx
 from typing import Generator
 
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
@@ -10,10 +11,28 @@ from prompts import FORMAT_SYSTEM, FORMAT_PROMPT, QA_SYSTEM_PROMPT, QA_USER_PROM
 client = OpenAI(
     api_key=DEEPSEEK_API_KEY,
     base_url=DEEPSEEK_BASE_URL,
+    timeout=httpx.Timeout(120.0, connect=15.0, read=60.0),
 )
+
+# ── 各场景输出 token 上限 ──────────────────────────────────
+MAX_TOKENS_FORMAT = 32000     # 文档格式化
+MAX_TOKENS_QA = 8000          # QA 问答
 
 
 def format_text_with_ai(extracted_text: str) -> str:
+    """
+    使用 AI 格式化文本（非流式）
+    DeepSeek V4 Flash / 关闭思考模式 / 最大 64K 输出
+
+    Args:
+        extracted_text: 待格式化的原始文本
+
+    Returns:
+        格式化后的 Markdown 文本
+
+    Raises:
+        AIServiceError: AI 服务调用失败
+    """
     try:
         response = client.chat.completions.create(
             model=DEEPSEEK_MODEL,
@@ -25,15 +44,26 @@ def format_text_with_ai(extracted_text: str) -> str:
                 )},
             ],
             temperature=0.3,
-            max_tokens=4000,
+            max_tokens=MAX_TOKENS_FORMAT,
+            extra_body={"thinking": {"type": "disabled"}},  # 结构化格式化，不需要思维链
         )
         return response.choices[0].message.content
-        
+
     except Exception as e:
         raise AIServiceError(f"AI 格式化失败: {str(e)}")
 
 
 def format_text_stream(extracted_text: str) -> Generator[StreamChunk, None, None]:
+    """
+    使用 AI 流式格式化文本
+    DeepSeek V4 Flash / 关闭思考模式 / 最大 64K 输出
+
+    Args:
+        extracted_text: 待格式化的原始文本
+
+    Yields:
+        StreamChunk: 流式输出的内容块
+    """
     try:
         response = client.chat.completions.create(
             model=DEEPSEEK_MODEL,
@@ -45,19 +75,24 @@ def format_text_stream(extracted_text: str) -> Generator[StreamChunk, None, None
                 )},
             ],
             temperature=0.3,
-            max_tokens=4000,
+            max_tokens=MAX_TOKENS_FORMAT,
+            extra_body={"thinking": {"type": "disabled"}},  # 结构化格式化，不需要思维链
             stream=True,
+            stream_options={"include_usage": True},  # 流式结束返回 token 用量
         )
-        
+
         for chunk in response:
-            if chunk.choices[0].delta.content:
+            if not chunk.choices:
+                continue  # skip usage-only chunk
+            delta = chunk.choices[0].delta
+            if delta and delta.content:
                 yield StreamChunk(
                     type=ChunkType.TEXT,
-                    content=chunk.choices[0].delta.content,
+                    content=delta.content,
                 )
-        
+
         yield StreamChunk(type=ChunkType.DONE)
-        
+
     except Exception as e:
         yield StreamChunk(
             type=ChunkType.ERROR,
@@ -70,6 +105,18 @@ def stream_qa_answer(
     context_text: str,
     question: str,
 ) -> Generator[StreamChunk, None, None]:
+    """
+    流式 QA 回答
+    DeepSeek V4 Flash / 开启思考模式 / 推理强度 high / 最大 32K 输出
+
+    Args:
+        selected_text: 用户选中的文本
+        context_text: 上下文文本
+        question: 用户提问
+
+    Yields:
+        StreamChunk: 流式输出的内容块
+    """
     try:
         response = client.chat.completions.create(
             model=DEEPSEEK_MODEL,
@@ -84,19 +131,26 @@ def stream_qa_answer(
                 )},
             ],
             temperature=0.7,
-            max_tokens=2000,
+            max_tokens=MAX_TOKENS_QA,
+            extra_body={
+                "thinking": {"type": "enabled"},               # QA 需要推理能力
+            },
             stream=True,
+            stream_options={"include_usage": True},  # 流式结束返回 token 用量
         )
-        
+
         for chunk in response:
-            if chunk.choices[0].delta.content:
+            if not chunk.choices:
+                continue  # skip usage-only chunk
+            delta = chunk.choices[0].delta
+            if delta and delta.content:
                 yield StreamChunk(
                     type=ChunkType.TEXT,
-                    content=chunk.choices[0].delta.content,
+                    content=delta.content,
                 )
-        
+
         yield StreamChunk(type=ChunkType.DONE)
-        
+
     except Exception as e:
         yield StreamChunk(
             type=ChunkType.ERROR,

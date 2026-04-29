@@ -11,13 +11,13 @@ from utils.document_parser import extract_text_from_document
 from services.ai_service import format_text_with_ai, format_text_stream
 
 
-ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx']
+ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.md']
 
 
 def upload_document(file_bytes: bytes, filename: str) -> Document:
     ext = Path(filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise DocumentUploadError(f"仅支持 PDF、DOC、DOCX 文件")
+        raise DocumentUploadError(f"仅支持 PDF、DOC、DOCX、MD 文件")
     
     file_size_mb = len(file_bytes) / (1024 * 1024)
     if file_size_mb > MAX_UPLOAD_SIZE_MB:
@@ -54,6 +54,7 @@ def parse_document(document_id: str, use_ai_format: bool = True, update_db: bool
     try:
         raw_text, total_pages, blocks = extract_text_from_document(document.file_path)
         
+        # 所有文件类型都使用 AI 格式化
         if use_ai_format and raw_text.strip():
             formatted_markdown = format_text_with_ai(raw_text)
         else:
@@ -95,6 +96,7 @@ def parse_document_stream(document_id: str, use_ai_format: bool = True) -> Gener
             metadata={"stage": "extracted", "total_pages": total_pages, "block_count": len(blocks)}
         )
         
+        # 所有文件类型都使用 AI 格式化
         if use_ai_format and raw_text.strip():
             yield StreamChunk(type=ChunkType.TEXT, content="", metadata={"stage": "formatting"})
             

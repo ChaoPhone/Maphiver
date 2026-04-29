@@ -25,6 +25,9 @@ const displayContent = ref('')
 let streamBuffer = ''
 let displayTimer: number | null = null
 
+// 暂停控制
+const isPaused = computed(() => documentStore.isPaused)
+
 const isDarkMode = ref(false)
 const isFocusMode = ref(false)
 const sidebarHovered = ref(false)
@@ -296,6 +299,23 @@ function closeQAPanel() {
 function goBack() {
   router.push('/history')
 }
+
+// 暂停格式化显示
+function handlePauseParsing() {
+  documentStore.pauseParsing()
+}
+
+// 继续格式化显示
+function handleResumeParsing() {
+  documentStore.resumeParsing()
+}
+
+// 停止格式化
+function handleStopParsing() {
+  documentStore.stopParsing()
+  parsing.value = false
+  ElMessage.warning('格式化已停止')
+}
 </script>
 
 <template>
@@ -358,7 +378,11 @@ function goBack() {
           v-else-if="parsing" 
           :progress="parseProgress" 
           :stage="parseStage" 
-          :content="displayContent" 
+          :content="displayContent"
+          :isPaused="isPaused"
+          @pause="handlePauseParsing"
+          @resume="handleResumeParsing"
+          @stop="handleStopParsing"
         />
         
         <div v-else class="content-wrapper">

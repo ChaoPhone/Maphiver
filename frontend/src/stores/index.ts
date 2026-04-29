@@ -11,22 +11,28 @@ export const useDocumentStore = defineStore('document', () => {
   const parseProgress = ref(0)
   const parseStage = ref('')
   
+  // 暂停/继续控制
+  const isPaused = ref(false)
+  let currentAbort: (() => void) | null = null
+
   async function fetchDocuments() {
     documents.value = await api.getDocuments()
   }
-  
+
   async function uploadFile(file: File) {
     const result = await api.uploadDocument(file)
     await fetchDocuments()
     return result
   }
-  
+
   async function parseDocument(id: string, onProgress?: (data: any) => void) {
     parseProgress.value = 0
     parseStage.value = 'extracting'
+    isPaused.value = false
 
-    const result = await api.parseDocument(id, (data) => {
-      if (onProgress) {
+    const { promise, abort } = api.parseDocument(id, (data) => {
+      // 即使暂停也继续接收数据，但不触发 onProgress
+      if (!isPaused.value && onProgress) {
         onProgress(data)
       }
       if (data.progress) {
@@ -37,12 +43,37 @@ export const useDocumentStore = defineStore('document', () => {
       }
     })
 
+    currentAbort = abort
+
+    const result = await promise
+
     blocks.value = result.blocks
     rawMarkdown.value = result.raw_markdown
     parseProgress.value = 100
     parseStage.value = 'done'
+    currentAbort = null
 
     return result
+  }
+
+  // 暂停格式化显示
+  function pauseParsing() {
+    isPaused.value = true
+  }
+
+  // 继续格式化显示
+  function resumeParsing() {
+    isPaused.value = false
+  }
+
+  // 停止格式化（完全终止）
+  function stopParsing() {
+    if (currentAbort) {
+      currentAbort()
+      currentAbort = null
+    }
+    isPaused.value = false
+    parseStage.value = 'stopped'
   }
 
   async function loadParsedContent(id: string) {
@@ -69,9 +100,13 @@ export const useDocumentStore = defineStore('document', () => {
     rawMarkdown,
     parseProgress,
     parseStage,
+    isPaused,
     fetchDocuments,
     uploadFile,
     parseDocument,
+    pauseParsing,
+    resumeParsing,
+    stopParsing,
     loadParsedContent,
     deleteDocument,
   }

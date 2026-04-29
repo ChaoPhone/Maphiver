@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from datetime import datetime
 from pathlib import Path
 import json
+import asyncio
 import aiofiles
 
 from models.schemas import (
@@ -30,8 +31,8 @@ async def upload_document_api(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="文件名不能为空")
     
     ext = Path(file.filename).suffix.lower()
-    if ext not in ['.pdf', '.doc', '.docx']:
-        raise HTTPException(status_code=400, detail="仅支持 PDF、DOC、DOCX 文件")
+    if ext not in ['.pdf', '.doc', '.docx', '.md']:
+        raise HTTPException(status_code=400, detail="仅支持 PDF、DOC、DOCX、MD 文件")
     
     try:
         file_bytes = await file.read()
@@ -105,43 +106,80 @@ async def list_documents_api():
 
 
 async def _generate_parse_stream(document_id: str):
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
+
+    def _producer():
+        try:
+            for chunk in parse_document_stream(document_id):
+                loop.call_soon_threadsafe(queue.put_nowait, ("chunk", chunk))
+        except Exception as e:
+            loop.call_soon_threadsafe(queue.put_nowait, ("error", e))
+            return
+        loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
+
+    loop.run_in_executor(None, _producer)
+
+    async def _keepalive():
+        while True:
+            await asyncio.sleep(8)
+            queue.put_nowait(("keepalive", None))
+
+    keepalive_task = asyncio.create_task(_keepalive())
+
     try:
-        for chunk in parse_document_stream(document_id):
-            if chunk.type.value == "text":
-                if chunk.metadata:
-                    progress_chunk = ParseProgressChunk(
-                        type="progress",
-                        stage=chunk.metadata.get("stage"),
-                        progress=_get_progress(chunk.metadata.get("stage")),
-                    )
-                    yield f"data: {json.dumps(progress_chunk.model_dump())}\n\n"
-                
-                if chunk.content:
-                    yield f"data: {json.dumps({'type': 'text', 'content': chunk.content})}\n\n"
-            
-            elif chunk.type.value == "done":
-                metadata = chunk.metadata or {}
-                blocks_data = metadata.get("blocks", [])
-                blocks = [ContentBlock(**b) for b in blocks_data] if blocks_data else []
-                
-                done_chunk = ParseProgressChunk(
-                    type="done",
-                    total_pages=metadata.get("total_pages"),
-                    blocks=blocks,
-                    raw_markdown=metadata.get("raw_markdown"),
-                )
-                yield f"data: {json.dumps(done_chunk.model_dump())}\n\n"
-            
-            elif chunk.type.value == "error":
-                error_chunk = ParseProgressChunk(
-                    type="error",
-                    error=chunk.error_message,
-                )
+        while True:
+            msg_type, msg_data = await queue.get()
+
+            if msg_type == "done":
+                break
+            elif msg_type == "error":
+                error_chunk = ParseProgressChunk(type="error", error=str(msg_data))
                 yield f"data: {json.dumps(error_chunk.model_dump())}\n\n"
-                
-    except Exception as e:
-        error_chunk = ParseProgressChunk(type="error", error=str(e))
-        yield f"data: {json.dumps(error_chunk.model_dump())}\n\n"
+                break
+            elif msg_type == "keepalive":
+                yield ": keepalive\n\n"
+            elif msg_type == "chunk":
+                chunk = msg_data
+                if chunk.type.value == "text":
+                    if chunk.metadata:
+                        progress_chunk = ParseProgressChunk(
+                            type="progress",
+                            stage=chunk.metadata.get("stage"),
+                            progress=_get_progress(chunk.metadata.get("stage")),
+                        )
+                        yield f"data: {json.dumps(progress_chunk.model_dump())}\n\n"
+
+                    if chunk.content:
+                        yield f"data: {json.dumps({'type': 'text', 'content': chunk.content})}\n\n"
+
+                elif chunk.type.value == "done":
+                    metadata = chunk.metadata or {}
+                    blocks_data = metadata.get("blocks", [])
+                    blocks = [ContentBlock(**b) for b in blocks_data] if blocks_data else []
+
+                    done_chunk = ParseProgressChunk(
+                        type="done",
+                        total_pages=metadata.get("total_pages"),
+                        blocks=blocks,
+                        raw_markdown=metadata.get("raw_markdown"),
+                    )
+                    yield f"data: {json.dumps(done_chunk.model_dump())}\n\n"
+
+                elif chunk.type.value == "error":
+                    error_chunk = ParseProgressChunk(
+                        type="error",
+                        error=chunk.error_message,
+                    )
+                    yield f"data: {json.dumps(error_chunk.model_dump())}\n\n"
+
+    except asyncio.CancelledError:
+        pass
+    finally:
+        keepalive_task.cancel()
+        # flush remaining queue items to unblock producer if still running
+        while not queue.empty():
+            queue.get_nowait()
 
 
 @router.get("/{document_id}/parse")

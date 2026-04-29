@@ -32,39 +32,106 @@ export async function deleteDocument(id: string): Promise<void> {
   await api.delete(`/documents/${id}`)
 }
 
-export function parseDocument(id: string, onProgress: (data: any) => void): Promise<{
-  blocks: ContentBlock[]
-  raw_markdown: string
-  total_pages: number
-}> {
-  return new Promise((resolve, reject) => {
-    const eventSource = new EventSource(`/api/documents/${id}/parse`)
-    
-    let blocks: ContentBlock[] = []
-    let raw_markdown = ''
-    let total_pages = 0
-    
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      onProgress(data)
-      
-      if (data.type === 'done') {
-        blocks = data.blocks || []
-        raw_markdown = data.raw_markdown || ''
-        total_pages = data.total_pages || 0
-        eventSource.close()
-        resolve({ blocks, raw_markdown, total_pages })
-      } else if (data.type === 'error') {
-        eventSource.close()
-        reject(new Error(data.error))
+export function parseDocument(
+  id: string,
+  onProgress: (data: any) => void
+): {
+  promise: Promise<{
+    blocks: ContentBlock[]
+    raw_markdown: string
+    total_pages: number
+  }>
+  abort: () => void
+} {
+  const controller = new AbortController()
+
+  let blocks: ContentBlock[] = []
+  let raw_markdown = ''
+  let total_pages = 0
+  let lastDataTime = Date.now()
+
+  const promise = new Promise<{
+    blocks: ContentBlock[]
+    raw_markdown: string
+    total_pages: number
+  }>(async (resolve, reject) => {
+    const stallTimer = setInterval(() => {
+      if (Date.now() - lastDataTime > 120000) {
+        controller.abort()
+        clearInterval(stallTimer)
+        reject(new Error('解析超时，请重试'))
+      }
+    }, 15000)
+
+    try {
+      const response = await fetch(`/api/documents/${id}/parse`, {
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        clearInterval(stallTimer)
+        reject(new Error(`HTTP error! status: ${response.status}`))
+        return
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) {
+        clearInterval(stallTimer)
+        reject(new Error('No reader available'))
+        return
+      }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        lastDataTime = Date.now()
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              onProgress(data)
+
+              if (data.type === 'done') {
+                clearInterval(stallTimer)
+                blocks = data.blocks || []
+                raw_markdown = data.raw_markdown || ''
+                total_pages = data.total_pages || 0
+                resolve({ blocks, raw_markdown, total_pages })
+                return
+              }
+              if (data.type === 'error') {
+                clearInterval(stallTimer)
+                reject(new Error(data.error))
+                return
+              }
+            } catch {
+              // skip malformed JSON lines
+            }
+          }
+        }
+      }
+
+      clearInterval(stallTimer)
+      reject(new Error('Stream ended unexpectedly'))
+    } catch (error: any) {
+      clearInterval(stallTimer)
+      if (error.name === 'AbortError') {
+        reject(new Error('解析已停止'))
+      } else {
+        reject(error)
       }
     }
-    
-    eventSource.onerror = (error) => {
-      eventSource.close()
-      reject(error)
-    }
   })
+
+  return { promise, abort: () => controller.abort() }
 }
 
 export async function createSession(documentId: string): Promise<Session> {

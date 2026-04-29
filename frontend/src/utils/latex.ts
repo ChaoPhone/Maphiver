@@ -68,10 +68,30 @@ export function extractLatexBlocks(markdown: string): {
   blocks: Array<{ placeholder: string; formula: string; display: boolean }>
 } {
   const blocks: Array<{ placeholder: string; formula: string; display: boolean }> = []
-  
-  // 先处理块级公式 $$...$$
-  // 替换 $$...$$ 为占位符
-  let text = markdown.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
+
+  // 处理 \[...\] 块级公式（标准 LaTeX 显示数学语法）
+  // 必须在 $$ 之前处理，因为内容格式相同
+  let text = markdown.replace(/\\\[([\s\S]*?)\\\]/g, (match, formula) => {
+    const placeholder = `${BLOCK_PLACEHOLDER_PREFIX}${blocks.length}${PLACEHOLDER_SUFFIX}`
+    const hasMatrix = /\\begin\{(pmatrix|bmatrix|vmatrix|Vmatrix|matrix|array)\}/.test(formula)
+    let processedFormula = formula
+
+    processedFormula = cleanBlockquoteInFormula(processedFormula)
+
+    if (hasMatrix) {
+      processedFormula = processedFormula.replace(/\\\\/g, LATEX_MATRIX_ROW_PLACEHOLDER)
+      processedFormula = preprocessLatexFormula(processedFormula)
+      processedFormula = processedFormula.replace(new RegExp(LATEX_MATRIX_ROW_PLACEHOLDER, 'g'), '\\\\')
+    } else {
+      processedFormula = preprocessLatexFormula(processedFormula)
+    }
+
+    blocks.push({ placeholder, formula: processedFormula, display: true })
+    return placeholder
+  })
+
+  // 处理块级公式 $$...$$
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
     const placeholder = `${BLOCK_PLACEHOLDER_PREFIX}${blocks.length}${PLACEHOLDER_SUFFIX}`
     const hasMatrix = /\\begin\{(pmatrix|bmatrix|vmatrix|Vmatrix|matrix|array)\}/.test(formula)
     let processedFormula = formula
