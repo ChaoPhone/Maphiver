@@ -68,3 +68,6 @@ coverage.xml
 # Package files
 *.tar.gz
 *.zip.workbuddy/
+
+.claude/
+.workbuddy/

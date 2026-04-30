@@ -22,7 +22,7 @@ MAX_TOKENS_QA = 8000          # QA 问答
 def format_text_with_ai(extracted_text: str) -> str:
     """
     使用 AI 格式化文本（非流式）
-    DeepSeek V4 Flash / 关闭思考模式 / 最大 64K 输出
+    DeepSeek V4.0 Flash / 关闭思考模式 / 最大 32K 输出
 
     Args:
         extracted_text: 待格式化的原始文本
@@ -45,7 +45,7 @@ def format_text_with_ai(extracted_text: str) -> str:
             ],
             temperature=0.3,
             max_tokens=MAX_TOKENS_FORMAT,
-            extra_body={"thinking": {"type": "disabled"}},  # 结构化格式化，不需要思维链
+            extra_body={"thinking": {"type": "disabled"}},
         )
         return response.choices[0].message.content
 
@@ -56,7 +56,7 @@ def format_text_with_ai(extracted_text: str) -> str:
 def format_text_stream(extracted_text: str) -> Generator[StreamChunk, None, None]:
     """
     使用 AI 流式格式化文本
-    DeepSeek V4 Flash / 关闭思考模式 / 最大 64K 输出
+    DeepSeek V4.0 Flash / 关闭思考模式 / 最大 32K 输出
 
     Args:
         extracted_text: 待格式化的原始文本
@@ -76,7 +76,7 @@ def format_text_stream(extracted_text: str) -> Generator[StreamChunk, None, None
             ],
             temperature=0.3,
             max_tokens=MAX_TOKENS_FORMAT,
-            extra_body={"thinking": {"type": "disabled"}},  # 结构化格式化，不需要思维链
+            extra_body={"thinking": {"type": "disabled"}},
             stream=True,
             stream_options={"include_usage": True},  # 流式结束返回 token 用量
         )
@@ -107,7 +107,7 @@ def stream_qa_answer(
 ) -> Generator[StreamChunk, None, None]:
     """
     流式 QA 回答
-    DeepSeek V4 Flash / 开启思考模式 / 推理强度 high / 最大 32K 输出
+    DeepSeek V4.0 Flash / 开启思考模式 / 推理强度 high / 最大 8K 输出
 
     Args:
         selected_text: 用户选中的文本
@@ -132,8 +132,9 @@ def stream_qa_answer(
             ],
             temperature=0.7,
             max_tokens=MAX_TOKENS_QA,
+            reasoning_effort="high",
             extra_body={
-                "thinking": {"type": "enabled"},               # QA 需要推理能力
+                "thinking": {"type": "enabled"},
             },
             stream=True,
             stream_options={"include_usage": True},  # 流式结束返回 token 用量

@@ -16,11 +16,35 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 BACKEND_DIR = ROOT / "backend"
 FRONTEND_DIR = ROOT / "frontend"
+VENV_DIR = BACKEND_DIR / ".venv"
 
 BACKEND_PORT = 8742
 FRONTEND_PORT = 4173
 
 processes = []
+
+
+def get_venv_python() -> Path:
+    """获取虚拟环境中的 Python 可执行路径"""
+    if sys.platform == "win32":
+        return VENV_DIR / "Scripts" / "python.exe"
+    return VENV_DIR / "bin" / "python"
+
+
+def ensure_venv() -> bool:
+    """如果虚拟环境不存在则创建"""
+    if VENV_DIR.exists():
+        return True
+    log("正在创建虚拟环境...")
+    r = subprocess.run(
+        [sys.executable, "-m", "venv", str(VENV_DIR)],
+        capture_output=True, text=True
+    )
+    if r.returncode != 0:
+        err(f"创建虚拟环境失败:\n{r.stderr}")
+        return False
+    ok("虚拟环境创建成功")
+    return True
 
 
 def log(msg):
@@ -36,16 +60,20 @@ def err(msg):
 
 
 def check_python():
+    """检查 Python 环境，确保虚拟环境可用"""
+    if not ensure_venv():
+        return False
+    venv_python = get_venv_python()
     try:
-        subprocess.run([sys.executable, "--version"], check=True, capture_output=True)
+        subprocess.run([str(venv_python), "--version"], check=True, capture_output=True)
     except:
-        err("Python not found")
+        err("虚拟环境 Python 不可用")
         return False
     try:
-        subprocess.run([sys.executable, "-m", "pip", "--version"], check=True, capture_output=True)
+        subprocess.run([str(venv_python), "-m", "pip", "--version"], check=True, capture_output=True)
         return True
     except:
-        err("pip not found")
+        err("虚拟环境中 pip 不可用")
         return False
 
 
@@ -60,15 +88,17 @@ def check_node():
 
 
 def install_python_deps():
-    log("Installing Python dependencies...")
+    """在虚拟环境中安装 Python 依赖"""
+    log("正在安装 Python 依赖...")
+    venv_python = get_venv_python()
     r = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-r", str(BACKEND_DIR / "requirements.txt"), "-q"],
+        [str(venv_python), "-m", "pip", "install", "-r", str(BACKEND_DIR / "requirements.txt"), "-q"],
         capture_output=True, text=True
     )
     if r.returncode != 0:
-        err(f"pip install failed:\n{r.stderr}")
+        err(f"pip 安装失败:\n{r.stderr}")
         return False
-    ok("Python dependencies installed")
+    ok("Python 依赖安装完成")
     return True
 
 
@@ -86,9 +116,10 @@ def install_npm_deps():
 
 
 def start_backend():
-    log(f"Starting Backend on http://localhost:{BACKEND_PORT}")
+    log(f"启动 Backend: http://localhost:{BACKEND_PORT}")
+    venv_python = get_venv_python()
     proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "main:app", "--reload", "--port", str(BACKEND_PORT)],
+        [str(venv_python), "-m", "uvicorn", "main:app", "--reload", "--port", str(BACKEND_PORT)],
         cwd=str(BACKEND_DIR), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         encoding="utf-8", errors="replace", bufsize=1
     )
@@ -151,7 +182,7 @@ def cleanup(signum=None, frame=None):
 def main():
     print("""
 ==================================
-  Maphiver v0.2.6
+  Maphiver v0.2.7
 ==================================
 """)
 
