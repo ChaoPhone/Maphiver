@@ -9,6 +9,11 @@
 
 > 一个以**对话流驱动、注重知识点自然关联与沉淀**的本地化 AI 学习伴侣。
 
+<p align="center">
+  <img src="image/introduction_ref.png" width="100%" alt="Maphiver 整体流程导图" />
+  <br/>
+</p>
+
 ---
 
 ## 项目简介
