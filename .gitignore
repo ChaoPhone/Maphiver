@@ -54,6 +54,7 @@ test_*.pdf
 # Build artifacts
 build/
 dist/
+*.spec
 *.pyc
 
 # Coverage

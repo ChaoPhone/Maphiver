@@ -1,7 +1,8 @@
+/* 阅读页主内容样式 - 更舒适的阅读体验 */
 .markdown-content h1,
 .stream-text h1 {
-  font-size: 2em;
-  margin: 1.4em 0 0.7em;
+  font-size: 2.2em;
+  margin: 1.5em 0 0.8em;
   color: var(--text-primary);
   font-weight: 700;
   border-bottom: 2px solid var(--text-accent);
@@ -10,8 +11,8 @@
 
 .markdown-content h2,
 .stream-text h2 {
-  font-size: 1.6em;
-  margin: 1.2em 0 0.6em;
+  font-size: 1.7em;
+  margin: 1.3em 0 0.7em;
   color: var(--text-primary);
   font-weight: 600;
   border-bottom: 1px solid var(--border-color);
@@ -21,8 +22,8 @@
 .markdown-content h3,
 .stream-text h3,
 .history-answer h1 {
-  font-size: 1.3em;
-  margin: 1em 0 0.5em;
+  font-size: 1.35em;
+  margin: 1.1em 0 0.6em;
   color: var(--text-primary);
   font-weight: 600;
 }
@@ -30,8 +31,8 @@
 .markdown-content h4,
 .stream-text h4,
 .history-answer h2 {
-  font-size: 1.15em;
-  margin: 0.8em 0 0.4em;
+  font-size: 1.2em;
+  margin: 0.9em 0 0.5em;
   color: var(--text-primary);
   font-weight: 600;
 }
@@ -44,10 +45,10 @@
 
 .markdown-content p,
 .stream-text p {
-  margin: 1em 0;
-  line-height: 2;
+  margin: 1.2em 0;
+  line-height: 1.9;
   color: var(--text-primary);
-  font-size: 18px;
+  font-size: 17px;
 }
 
 .stream-content p,
@@ -60,10 +61,10 @@
 .markdown-content ol,
 .stream-text ul,
 .stream-text ol {
-  margin: 1em 0;
-  padding-left: 2em;
-  line-height: 2;
-  font-size: 18px;
+  margin: 1.2em 0;
+  padding-left: 1.8em;
+  line-height: 1.85;
+  font-size: 17px;
 }
 
 .stream-content ul,
@@ -91,14 +92,14 @@
 
 .markdown-content blockquote,
 .stream-text blockquote {
-  margin: 1.2em 0;
-  padding: 1em 1.5em;
+  margin: 1.3em 0;
+  padding: 1em 1.4em;
   border-left: 4px solid var(--text-accent);
   background: var(--bg-hover);
   border-radius: 0 8px 8px 0;
   color: var(--text-secondary);
-  font-size: 17px;
-  line-height: 1.9;
+  font-size: 16px;
+  line-height: 1.8;
 }
 
 .stream-content blockquote,
@@ -243,4 +244,12 @@
   max-width: 100%;
   border-radius: 8px;
   margin: 1em 0;
+}
+
+/* Block 面包屑高亮样式 */
+.markdown-content .block-highlighted,
+.stream-text .block-highlighted {
+  background: var(--bg-hover);
+  border-radius: 4px;
+  transition: background 0.2s ease;
 }

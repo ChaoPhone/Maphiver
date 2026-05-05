@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElIcon, ElButton, ElScrollbar } from 'element-plus'
 import { Notebook, EditPen, Close } from '@element-plus/icons-vue'
 import FootprintPanel from './FootprintPanel.vue'
@@ -9,6 +9,7 @@ import * as api from '@/api'
 
 const props = defineProps<{
   sessionId: string
+  cardsRefreshTrigger?: number
 }>()
 
 const cards = ref<KnowledgeCard[]>([])
@@ -35,6 +36,11 @@ async function deleteCard(cardId: string) {
     console.error('删除失败', error)
   }
 }
+
+// 监听刷新触发器
+watch(() => props.cardsRefreshTrigger, () => {
+  loadCards()
+})
 
 onMounted(() => {
   loadCards()

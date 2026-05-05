@@ -109,25 +109,24 @@ async function createCardFromSelection() {
   }
 }
 
-// 计算阴影位置（与主卡片同步）
+// 计算阴影位置（只计算top，左右固定）
 const shadowStyle1 = computed(() => ({
-  top: (props.position?.top || 0) + 6 + 'px',
-  right: (props.position?.right || 20) - 6 + 'px'
+  top: (props.position?.top || 0) + 6 + 'px'
 }))
 
 const shadowStyle2 = computed(() => ({
-  top: (props.position?.top || 0) + 12 + 'px',
-  right: (props.position?.right || 20) - 12 + 'px'
+  top: (props.position?.top || 0) + 12 + 'px'
 }))
 </script>
 
 <template>
-  <!-- 错位阴影卡片 - 与主卡片同步 -->
-  <div class="qa-panel-shadow" :style="shadowStyle1"></div>
-  <div class="qa-panel-shadow second" :style="shadowStyle2"></div>
-  
-  <!-- 主卡片 -->
-  <div v-if="position" class="qa-panel" :style="{ top: (position.top || 0) + 'px', right: (position.right || 20) + 'px' }">
+  <div class="qa-panel-wrapper">
+    <!-- 错位阴影卡片 - 固定左侧位置 -->
+    <div class="qa-panel-shadow" :style="shadowStyle1"></div>
+    <div class="qa-panel-shadow second" :style="shadowStyle2"></div>
+
+    <!-- 主卡片 - 固定左侧位置，top动态 -->
+    <div v-if="position" class="qa-panel" :style="{ top: (position.top || 0) + 'px' }">
     <!-- 折页关闭按钮 -->
     <div class="fold-corner" @click="emit('close')">
       <div class="fold-paper"></div>
@@ -238,20 +237,22 @@ const shadowStyle2 = computed(() => ({
         </span>
       </div>
     </div>
-  </div>
+  </div><!-- qa-panel -->
+</div><!-- qa-panel-wrapper -->
 </template>
 
 <style scoped>
-/* 错位阴影卡片 - 与主卡片同步动态 */
+/* 错位阴影卡片 - 固定在右侧 */
 .qa-panel-shadow {
   position: fixed;
-  width: 360px;
+  left: calc(75vw + 16px);
+  right: 26px;
   background: var(--bg-sidebar);
   border-radius: 12px;
   z-index: 999;
   opacity: 0.6;
   pointer-events: none;
-  transition: top 0.3s cubic-bezier(0.4, 0, 0.2, 1), right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: top 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .qa-panel-shadow.second {
@@ -259,24 +260,24 @@ const shadowStyle2 = computed(() => ({
   z-index: 998;
 }
 
-/* 主卡片 - 渐入渐出 */
+/* 主卡片 - 固定在右侧，左边缘接近75vw */
 .qa-panel {
+  position: fixed;
+  left: calc(75vw + 10px);  /* 左侧接近主文档右边缘 */
+  right: 20px;  /* 右边距 */
   background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: 12px;
   padding: 24px;
   padding-top: 32px;
-  position: fixed;
-  width: 360px;
   z-index: 1000;
   max-height: 65vh;
   overflow-y: auto;
   overflow-x: hidden;
   font-family: var(--font-serif);
-  
+
   /* 渐入渐出动画 */
   animation: panel-enter 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  transition: top 0.3s cubic-bezier(0.4, 0, 0.2, 1), right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes panel-enter {

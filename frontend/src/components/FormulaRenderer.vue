@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { marked } from 'marked'
 import katex from 'katex'
 import { extractLatexBlocks } from '@/utils/latex'
@@ -14,6 +14,19 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', text: string, range: { start: number; end: number; rect: DOMRect | null; firstLineRect: DOMRect | null }): void
 }>()
+
+const rendererRef = ref<HTMLElement | null>(null)
+
+// 实时选区矩形框状态
+const selectionBox = ref({
+  visible: false,
+  top: 0,
+  left: 0,
+  width: 0,
+  height: 0
+})
+
+let selectionChangeListener: (() => void) | null = null
 
 const renderedHtml = computed(() => {
   if (!props.content) return ''
@@ -121,6 +134,40 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+// 更新选区矩形框位置
+function updateSelectionBox(rect: DOMRect | null) {
+  if (!rect || rect.width === 0 || rect.height === 0) {
+    selectionBox.value.visible = false
+    return
+  }
+
+  const padding = 2
+  selectionBox.value = {
+    visible: true,
+    top: rect.top - padding,
+    left: rect.left - padding,
+    width: rect.width + padding * 2,
+    height: rect.height + padding * 2
+  }
+}
+
+// 监听选区变化，实时更新矩形框
+function handleSelectionChange() {
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+    selectionBox.value.visible = false
+    return
+  }
+
+  try {
+    const range = selection.getRangeAt(0)
+    const rect = range.getBoundingClientRect()
+    updateSelectionBox(rect)
+  } catch (e) {
+    selectionBox.value.visible = false
+  }
+}
+
 function handleMouseUp(event: MouseEvent) {
   const selection = window.getSelection()
   if (selection && selection.toString().trim()) {
@@ -129,18 +176,18 @@ function handleMouseUp(event: MouseEvent) {
       const range = selection.getRangeAt(0)
       const rect = range.getBoundingClientRect()
 
+      // 清除浏览器默认选中样式，只显示我们的矩形框
+      // 注意：不调用 removeAllRanges()，保持选区状态但不显示蓝色
+
       // 获取选区第一行的边界
       let firstLineRect: DOMRect | null = null
       try {
-        // 创建一个只包含第一行的临时 range
         const tempRange = document.createRange()
         tempRange.setStart(range.startContainer, range.startOffset)
 
-        // 找到第一行的结束位置（到换行符或 range 结束）
         let endNode = range.endContainer
         let endOffset = range.endOffset
 
-        // 如果结束节点是文本节点，查找第一个换行符
         if (endNode.nodeType === Node.TEXT_NODE) {
           const textContent = endNode.textContent || ''
           const newlineIndex = textContent.indexOf('\n', 0)
@@ -153,9 +200,11 @@ function handleMouseUp(event: MouseEvent) {
         firstLineRect = tempRange.getBoundingClientRect()
         tempRange.detach()
       } catch (e) {
-        // 如果计算失败，使用整个选区
         firstLineRect = rect
       }
+
+      // 更新矩形框位置
+      updateSelectionBox(firstLineRect || rect)
 
       emit('select', text, {
         start: range.startOffset,
@@ -166,19 +215,74 @@ function handleMouseUp(event: MouseEvent) {
     }
   }
 }
+
+onMounted(() => {
+  // 监听选区变化
+  selectionChangeListener = () => handleSelectionChange()
+  document.addEventListener('selectionchange', selectionChangeListener)
+})
+
+onUnmounted(() => {
+  if (selectionChangeListener) {
+    document.removeEventListener('selectionchange', selectionChangeListener)
+  }
+})
 </script>
 
 <template>
-  <div class="formula-renderer" @mouseup="handleMouseUp">
-    <div v-html="renderedHtml"></div>
+  <div class="formula-renderer" ref="rendererRef" @mouseup="handleMouseUp">
+    <div class="markdown-body" v-html="renderedHtml"></div>
+    <!-- 实时选区矩形框 -->
+    <transition name="selection-fade">
+      <div
+        v-if="selectionBox.visible"
+        class="live-selection-box"
+        :style="{
+          top: selectionBox.top + 'px',
+          left: selectionBox.left + 'px',
+          width: selectionBox.width + 'px',
+          height: selectionBox.height + 'px'
+        }"
+      />
+    </transition>
   </div>
 </template>
 
 <style scoped>
 .formula-renderer {
-  /* 不设置 font-size，继承父元素 markdown-content 的样式 */
+  position: relative;
   line-height: inherit;
   color: var(--text-primary);
+}
+
+/* 隐藏浏览器默认的选中样式 */
+.formula-renderer ::selection {
+  background: transparent;
+}
+
+.formula-renderer::-moz-selection {
+  background: transparent;
+}
+
+/* 实时选区矩形框 - 主题色边框 */
+.live-selection-box {
+  position: fixed;
+  border: 2px solid var(--text-accent);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 998;
+  background: transparent;
+  transition: all 0.1s ease-out;
+}
+
+.selection-fade-enter-active,
+.selection-fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.selection-fade-enter-from,
+.selection-fade-leave-to {
+  opacity: 0;
 }
 
 /* 只保留公式相关样式，其他样式由 markdown.css 全局控制 */
