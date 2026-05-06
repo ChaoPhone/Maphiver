@@ -57,6 +57,13 @@ function triggerCardsRefresh() {
   cardsRefreshTrigger.value++
 }
 
+// 刷新QA历史记录
+async function triggerQARefresh() {
+  if (sessionId.value) {
+    sessionStore.qaMessages = await api.getQAHistory(sessionId.value)
+  }
+}
+
 function toggleTheme() {
   isDarkMode.value = !isDarkMode.value
   if (isDarkMode.value) {
@@ -479,6 +486,7 @@ function handleStopParsing() {
         :position="panelPosition"
         @close="closeQAPanel"
         @card-created="triggerCardsRefresh"
+        @qa-created="triggerQARefresh"
       />
     </transition>
   </div>

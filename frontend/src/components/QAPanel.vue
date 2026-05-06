@@ -15,6 +15,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'card-created'): void
+  (e: 'qa-created'): void
 }>()
 
 const question = ref('')
@@ -58,6 +59,7 @@ async function askQuestion(qType?: string) {
       }
     )
     question.value = ''
+    emit('qa-created')  // 通知父组件刷新历史记录
   } catch (error: any) {
     ElMessage.error(error.message || '提问失败')
   }
