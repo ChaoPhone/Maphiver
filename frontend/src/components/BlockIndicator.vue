@@ -194,7 +194,7 @@ function closeCard() {
 
 function handleDocumentClick(event: MouseEvent) {
   const target = event.target as HTMLElement
-  if (target.closest('.qa-tree') || target.closest('.qa-card-overlay')) return
+  if (target.closest('.qa-tree') || target.closest('.qa-card-overlay') || target.closest('.qa-detail-card')) return
   closeCard()
 }
 
