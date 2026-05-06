@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import FormulaRenderer from './FormulaRenderer.vue'
 import { findRelatedQA } from '@/utils/qaMatch'
+import * as api from '@/api'
 import type { QAMessage } from '@/types'
 
 const props = defineProps<{
@@ -13,6 +14,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'block-select', text: string, rect: DOMRect): void
   (e: 'panel-expanded', isExpanded: boolean): void
+  (e: 'qa-created'): void
 }>()
 
 // Block信息
@@ -218,12 +220,25 @@ async function submitFollowUp(qa: QAMessage) {
   }
   followUpMessages.value.get(qa.id)!.push(newFollowUp)
 
-  // 模拟回答（实际应该调用 API）
-  setTimeout(() => {
-    newFollowUp.answer = '这是追问的回答内容...'
-    followUpAnswering.value = false
+  try {
+    await api.askQuestionStream(
+      qa.session_id,
+      followUpQuestion.value,
+      qa.selected_text,
+      undefined,
+      (chunk: any) => {
+        if (chunk.type === 'text') {
+          newFollowUp.answer += chunk.content || ''
+        }
+      }
+    )
     followUpQuestion.value = ''
-  }, 1000)
+    emit('qa-created')  // 通知父组件刷新历史记录
+  } catch (error) {
+    newFollowUp.answer = '追问失败，请重试'
+  }
+
+  followUpAnswering.value = false
 }
 
 function getFollowUps(qaId: string): QAMessage[] {

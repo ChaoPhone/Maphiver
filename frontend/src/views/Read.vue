@@ -464,6 +464,7 @@ function handleStopParsing() {
                 :refresh-trigger="qaRefreshTrigger"
                 @block-select="handleBlockSelect"
                 @panel-expanded="handlePanelExpanded"
+                @qa-created="triggerQARefresh"
               />
               <div v-if="!documentStore.rawMarkdown && !loading" class="empty-content">
                 文档内容为空
